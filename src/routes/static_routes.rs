@@ -5,8 +5,6 @@ use crate::{frontend, log};
 
 #[get("/{path:.*}")]
 async fn index(path: web::Path<String>) -> HttpResponse {
-  log(&format!("Trying to serve: {}", path), None);
-
   frontend::get(&path).map(|c| (c, MimeGuess::from_path(&*path).first_or_octet_stream())).or_else(|| {
     let data = if path.ends_with("/") || path.is_empty() {
      frontend::get(&format!("{path}index.html"))
