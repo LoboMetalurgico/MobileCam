@@ -5,11 +5,12 @@ use walkdir::WalkDir;
 
 fn main() {
     let frontend_dir = Path::new("frontend");
-    let frontend_dist_dir = frontend_dir.join("dist");
+    let frontend_dist_dir = frontend_dir.join("build");
 
-    
-    run_command("npm", &["install"], frontend_dir);
-    run_command("npm", &["run", "build"], frontend_dir);
+    let npm_command = if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" };
+
+    run_command(npm_command, &["install"], frontend_dir);
+    run_command(npm_command, &["run", "build"], frontend_dir);
 
     println!("cargo:rerun-if-changed={}", frontend_dir.display());
 
