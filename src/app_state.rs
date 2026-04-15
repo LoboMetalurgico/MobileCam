@@ -63,7 +63,7 @@ impl AppState {
     let mut parts = Vec::new();
     for u_data in self.connections.iter() {
       if filter(u_data.value()) {
-        parts.push(u_data.key().clone());
+        parts.push(*u_data.key());
       }
     }
 

@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tokio::time::sleep;
 
 use crate::{
-  CONN_TIMEOUT, MSG_TIMEOUT, app_state::AppState, commands::b_command, log, server::{Commands, Roles, message_handler}
+  CONN_TIMEOUT, MSG_TIMEOUT, app_state::AppState, log, server::{Commands, Roles, message_handler}
 };
 
 fn create_timeout_task(session: Session) -> rt::task::JoinHandle<()> {
@@ -37,7 +37,7 @@ async fn handle_msg(
       if role.is_streamer() {
         let consumers = app_state.get_conns(|u| u.role.is_viewer() || u.role.is_controller());
         for mut conn in consumers {
-          let _ = conn.text(Commands::K { id: session_id }.to_string());
+          let _ = conn.text(Commands::K { id: session_id }.to_string()).await;
         }
       }
       return Some(reason)
@@ -124,8 +124,6 @@ async fn incoming_socket(
     }
     Roles::Controller => {
       log(&format!("Controller connected with session ID {session_id}"), None);
-
-      let _ = b_command(&app_state, session.clone());
     }
   }
 

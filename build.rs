@@ -9,8 +9,8 @@ fn main() {
 
     let npm_command = if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" };
 
-    run_command(npm_command, &["install"], frontend_dir);
-    run_command(npm_command, &["run", "build"], frontend_dir);
+    run_command(npm_command, ["install"], frontend_dir);
+    run_command(npm_command, ["run", "build"], frontend_dir);
 
     println!("cargo:rerun-if-changed={}", frontend_dir.display());
 
@@ -32,7 +32,7 @@ fn main() {
         frontend_map.entry(key, value);
     }
 
-    write!(static_frontend_file, "static FRONTEND: phf::Map<&'static str, &'static [u8]> = {};\n", frontend_map.build()).expect("Failed to write output file");
+    writeln!(static_frontend_file, "static FRONTEND: phf::Map<&'static str, &'static [u8]> = {};", frontend_map.build()).expect("Failed to write output file");
 }
 
 fn run_command<C: AsRef<OsStr>,  AI: IntoIterator<Item = AS>, AS: AsRef<OsStr>, D: AsRef<Path>>(command: C, args: AI, dir: D) {
