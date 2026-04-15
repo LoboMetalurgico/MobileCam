@@ -1,7 +1,7 @@
 use actix_web::{HttpResponse, get, web};
 use mime_guess::{MimeGuess};
 
-use crate::{frontend, log};
+use crate::frontend;
 
 #[get("/{path:.*}")]
 async fn index(path: web::Path<String>) -> HttpResponse {

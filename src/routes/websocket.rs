@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::time::Duration;
 
 use actix_web::{
   Error, HttpRequest, HttpResponse, get, rt,
@@ -6,6 +6,7 @@ use actix_web::{
 };
 use actix_ws::{AggregatedMessage, CloseReason, Session};
 use bytestring::ByteString;
+use serde::Deserialize;
 use tokio::time::sleep;
 
 use crate::{
@@ -60,34 +61,37 @@ async fn handle_msg(
   None
 }
 
+#[derive(Debug, Deserialize)]
+struct WebSocketQuery {
+  role: Option<String>,
+  watch_id: Option<u8>,
+}
+
 #[get("/ws")]
 async fn incoming_socket(
   req: HttpRequest,
   stream: web::Payload,
   app_state: Data<AppState>,
+  query: web::Query<WebSocketQuery>,
 ) -> Result<HttpResponse, Error> {
-  let role = match req
-    .headers()
-    .get("stream-role")
-    .and_then(|v| v.to_str().ok())
+  let role = match query.role.as_deref()
   {
     Some("streamer") => Roles::Streamer,
     Some("viewer") => {
-      let Some(viewing_id) = req
-        .headers()
-        .get("watch-id")
-        .and_then(|v| v.to_str().ok().and_then(|s| u8::from_str(s).ok()))
+      let Some(viewing_id) = query.watch_id
       else {
+        log("Viewer role requires watch_id query parameter set.", None);
         return Ok(
-          HttpResponse::BadRequest().body("Watch-id header value is not a valid u8 number!"),
+          HttpResponse::BadRequest().body("watch_id value isn't provided for viewer role!"),
         );
       };
       Roles::Viewer(viewing_id)
     }
     Some("controller") => Roles::Controller,
     _ => {
+      log("WebSocket connection requires stream-role query parameter set.", None);
       return Ok(
-        HttpResponse::BadRequest().body("Missing or invalid stream-role header in request!"),
+        HttpResponse::BadRequest().body("Missing or invalid stream-role query parameter in request!"),
       );
     }
   };
@@ -103,6 +107,8 @@ async fn incoming_socket(
 
   match role {
     Roles::Streamer => {
+      log(&format!("Streamer connected with session ID {session_id}"), None);
+
       for mut init_session in app_state
         .get_conns(|user_data| user_data.role.is_controller() || user_data.role.is_viewer())
       {
@@ -110,11 +116,15 @@ async fn incoming_socket(
       }
     }
     Roles::Viewer(data) => {
+      log(&format!("Viewer connected with session ID {session_id}, watching {data}"), None);
+
       if let Some(mut conn) = app_state.get_connection(data) {
         let _ = conn.text(format!("e:{session_id}")).await;
       }
     }
     Roles::Controller => {
+      log(&format!("Controller connected with session ID {session_id}"), None);
+
       let _ = b_command(&app_state, session.clone());
     }
   }

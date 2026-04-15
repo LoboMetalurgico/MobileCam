@@ -230,7 +230,7 @@ pub async fn message_handler(
   content: ByteString,
 ) {
   let Ok(command) = Commands::from_str(&content) else {
-    log("Invalid command: {content}", None);
+    log(&format!("Invalid command: {content}"), None);
     return;
   };
 
@@ -251,8 +251,9 @@ pub async fn message_handler(
       }
     }
     Commands::F(data) => {
+
       if let Some(mut connection) = app_state.get_connection(data.id) {
-        let _ = connection.text(Commands::F(data).to_string()).await; // sends F as is to viewer
+        let _ = connection.text(Commands::F(JSONBody { body: data.body, id: session_id }).to_string()).await; // sends F as is to viewer
       } else {
         log("[Warn] Streamer offered to no one", None);
       }
@@ -260,7 +261,7 @@ pub async fn message_handler(
 
     Commands::G(data) => {
       if let Some(mut connection) = app_state.get_connection(data.id) {
-        let _ = connection.text(Commands::G(data).to_string()).await; // sends G as is to Viewer
+        let _ = connection.text(Commands::G(JSONBody { body: data.body, id: session_id }).to_string()).await; // sends G as is to Viewer
       } else {
         log("[Warn] Streamer sent candidate to no one", None);
       }
@@ -268,9 +269,7 @@ pub async fn message_handler(
 
     Commands::H(data) => {
       if let Some(mut connection) = app_state.get_connection(data.id) {
-        let mut data_copy = data.clone();
-        data_copy.id = session_id;
-        let _ = connection.text(Commands::H(data_copy).to_string()).await; // sends H as is to Streamer
+        let _ = connection.text(Commands::H(JSONBody { body: data.body, id: session_id }).to_string()).await; // sends H as is to Streamer
       } else {
         log("[Warn] Streamer sent candidate to no one", None);
       }

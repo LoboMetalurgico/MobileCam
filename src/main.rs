@@ -102,9 +102,11 @@ async fn main() -> std::io::Result<()> {
       exit(1)
     });
 
-  HttpServer::new(|| {
+  let app_state = Data::new(AppState::new());
+
+  HttpServer::new(move || {
     App::new()
-      .app_data(Data::new(AppState::new()))
+      .app_data(app_state.clone())
       .service(incoming_socket)
       .service(index)
   })
