@@ -126,6 +126,7 @@ pub enum Commands {
   I { id: u8, quality: Quality },
   J { body: String },
   K { id: u8 },
+  L { id: u8 },
 }
 
 impl From<&Commands> for String {
@@ -136,7 +137,8 @@ impl From<&Commands> for String {
       Commands::D => String::from("d"),
 
       Commands::E { id } => format!("e:{id}"),
-      Commands::K { id } => format!("e:{id}"),
+      Commands::K { id } => format!("k:{id}"),
+      Commands::L { id } => format!("l:{id}"),
 
       Commands::F(body) => format!("f:{body}"),
       Commands::G(body) => format!("g:{body}"),
@@ -174,11 +176,14 @@ impl FromStr for Commands {
       'b' => Ok(Self::B),
       'd' => Ok(Self::D),
 
-      'e' | 'k' => {
+      'e' | 'k' | 'l' => {
         let id = u8::from_str(&rest).map_err(|_| ())?;
         if cmd == 'e' {
           Ok(Self::E { id })
-        } else {
+        } else if cmd == 'l' {
+          Ok(Self::L { id })
+        }
+         else {
           Ok(Self::K { id })
         }
       }

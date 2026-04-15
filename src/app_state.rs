@@ -8,7 +8,7 @@ use dashmap::DashMap;
 use fxhash::FxHasher32;
 use parking_lot::Mutex;
 
-use crate::server::{Roles, UserData};
+use crate::{server::{Roles, UserData}};
 
 pub struct AppState {
   trash_bin: Mutex<Vec<u8>>,
