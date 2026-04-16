@@ -165,6 +165,7 @@ async fn incoming_socket(
           tracing::trace!("Message timeout reached, sending ping to check connection health");
           if let Err(e) = session.ping(b"").await {
             tracing::debug!("Failed to send ping: {e}");
+            timeout_task.abort();
             break Some(CloseReason {
               code: 4001.into(),
               description: Some("Message Timeout".to_string()),
