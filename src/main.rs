@@ -30,7 +30,7 @@ const MSG_TIMEOUT: u64 = 5; // seconds
 const CONN_TIMEOUT: u64 = 15; // seconds
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() {
   tracing_subscriber::registry()
     .with(fmt::layer())
     .with(
@@ -86,12 +86,20 @@ async fn main() -> std::io::Result<()> {
   })
   .bind_rustls_0_23(
     [
-      SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 3000)),
       SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 3000, 0, 0)),
+      SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 3000)),
     ]
     .as_slice(),
     tls_config,
-  )?
+  )
+  .unwrap_or_else(|e| {
+    tracing::error!("Failed to bind server to port 3000: {e}");
+    exit(1);
+  })
   .run()
   .await
+  .unwrap_or_else(|e| {
+    tracing::error!("Server failed to start: {e}");
+    exit(1);
+  });
 }
