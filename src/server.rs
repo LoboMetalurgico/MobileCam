@@ -1,7 +1,4 @@
-use std::{
-  fmt,
-  str::FromStr,
-};
+use std::{fmt, str::FromStr};
 
 use actix_web::web::Data;
 use actix_ws::Session;
@@ -74,7 +71,11 @@ impl fmt::Display for Quality {
 
 impl FromStr for Quality {
   fn from_str(s: &str) -> Result<Self, Self::Err> {
-    Self::try_from(u8::from_str(s).inspect_err(|e| tracing::debug!("Failed to parse quality: {e}")).map_err(|_| ())?)
+    Self::try_from(
+      u8::from_str(s)
+        .inspect_err(|e| tracing::debug!("Failed to parse quality: {e}"))
+        .map_err(|_| ())?,
+    )
   }
 
   type Err = ();
@@ -101,12 +102,20 @@ impl fmt::Display for JSONBody {
 impl FromStr for JSONBody {
   fn from_str(s: &str) -> Result<Self, Self::Err> {
     let mut parts = s.split(":");
-    let id = parts.next().ok_or(()).inspect_err(|_| tracing::debug!("Can't get the session ID"))?;
+    let id = parts
+      .next()
+      .ok_or(())
+      .inspect_err(|_| tracing::debug!("Can't get the session ID"))?;
     let collected_body = parts.collect::<Vec<_>>().join(":");
-    let json_body = collected_body.strip_prefix("#").ok_or(()).inspect_err(|_| tracing::debug!("Can't get the JSON body"))?;
+    let json_body = collected_body
+      .strip_prefix("#")
+      .ok_or(())
+      .inspect_err(|_| tracing::debug!("Can't get the JSON body"))?;
     Ok(Self {
       body: json_body.to_string(),
-      id: u8::from_str(id).inspect_err(|e| tracing::debug!("Failed to parse session ID: {e}")).map_err(|_| ())?,
+      id: u8::from_str(id)
+        .inspect_err(|e| tracing::debug!("Failed to parse session ID: {e}"))
+        .map_err(|_| ())?,
     })
   }
 
@@ -177,13 +186,14 @@ impl FromStr for Commands {
       'd' => Ok(Self::D),
 
       'e' | 'k' | 'l' => {
-        let id = u8::from_str(&rest).inspect_err(|e| tracing::debug!("Failed to parse session ID: {e}")).map_err(|_| ())?;
+        let id = u8::from_str(&rest)
+          .inspect_err(|e| tracing::debug!("Failed to parse session ID: {e}"))
+          .map_err(|_| ())?;
         if cmd == 'e' {
           Ok(Self::E { id })
         } else if cmd == 'l' {
           Ok(Self::L { id })
-        }
-         else {
+        } else {
           Ok(Self::K { id })
         }
       }
@@ -199,7 +209,9 @@ impl FromStr for Commands {
         let id_part = parts.next().ok_or(())?;
         let quality_part = parts.next().ok_or(())?;
 
-        let id = u8::from_str(id_part).inspect_err(|e| tracing::debug!("Failed to parse session ID: {e}")).map_err(|_| ())?;
+        let id = u8::from_str(id_part)
+          .inspect_err(|e| tracing::debug!("Failed to parse session ID: {e}"))
+          .map_err(|_| ())?;
         let quality = Quality::from_str(quality_part).map_err(|_| ())?;
 
         Ok(Self::I { id, quality })
@@ -257,9 +269,16 @@ pub async fn message_handler(
       }
     }
     Commands::F(data) => {
-
       if let Some(mut connection) = app_state.get_connection(data.id) {
-        let _ = connection.text(Commands::F(JSONBody { body: data.body, id: session_id }).to_string()).await; // sends F as is to viewer
+        let _ = connection
+          .text(
+            Commands::F(JSONBody {
+              body: data.body,
+              id: session_id,
+            })
+            .to_string(),
+          )
+          .await; // sends F as is to viewer
       } else {
         tracing::warn!("Streamer tried to send offer to a non-existent connection");
       }
@@ -267,7 +286,15 @@ pub async fn message_handler(
 
     Commands::G(data) => {
       if let Some(mut connection) = app_state.get_connection(data.id) {
-        let _ = connection.text(Commands::G(JSONBody { body: data.body, id: session_id }).to_string()).await; // sends G as is to Viewer
+        let _ = connection
+          .text(
+            Commands::G(JSONBody {
+              body: data.body,
+              id: session_id,
+            })
+            .to_string(),
+          )
+          .await; // sends G as is to Viewer
       } else {
         tracing::warn!("Streamer tried to send answer to a non-existent connection");
       }
@@ -275,7 +302,15 @@ pub async fn message_handler(
 
     Commands::H(data) => {
       if let Some(mut connection) = app_state.get_connection(data.id) {
-        let _ = connection.text(Commands::H(JSONBody { body: data.body, id: session_id }).to_string()).await; // sends H as is to Streamer
+        let _ = connection
+          .text(
+            Commands::H(JSONBody {
+              body: data.body,
+              id: session_id,
+            })
+            .to_string(),
+          )
+          .await; // sends H as is to Streamer
       } else {
         tracing::warn!("Streamer tried to send candidate to a non-existent connection");
       }
@@ -283,16 +318,21 @@ pub async fn message_handler(
 
     Commands::I { id, quality } => {
       if let Some(mut connection) = app_state.get_connection(id) {
-        let _ = connection.text(Commands::I { id, quality }.to_string()).await; // sends I as is to Streamer
+        let _ = connection
+          .text(Commands::I { id, quality }.to_string())
+          .await; // sends I as is to Streamer
       } else {
         tracing::warn!("Controller sent quality request to a non-existent connection");
-      } 
+      }
     }
 
     Commands::J { body } => {
-      let connection = app_state.get_conns(|data| { data.role.is_viewer() || data.role.is_controller() });
+      let connection =
+        app_state.get_conns(|data| data.role.is_viewer() || data.role.is_controller());
       for mut conn in connection {
-        let _ = conn.text(Commands::J { body: body.clone() }.to_string()).await; // Broadcast J for everyone except streamers
+        let _ = conn
+          .text(Commands::J { body: body.clone() }.to_string())
+          .await; // Broadcast J for everyone except streamers
       }
     }
 

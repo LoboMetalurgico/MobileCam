@@ -2,8 +2,11 @@ use actix_web::{App, HttpServer, web::Data};
 use get_if_addrs::get_if_addrs;
 use rcgen::generate_simple_self_signed;
 use rustls::ServerConfig;
+use std::{
+  net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+  process::exit,
+};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
-use std::{net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6}, process::exit};
 
 use crate::{
   app_state::AppState,
@@ -11,9 +14,9 @@ use crate::{
 };
 
 mod app_state;
+mod commands;
 mod routes;
 mod server;
-mod commands;
 
 mod frontend {
   include!(concat!(env!("OUT_DIR"), "/frontend.rs"));
@@ -29,22 +32,25 @@ const CONN_TIMEOUT: u64 = 15; // seconds
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
   tracing_subscriber::registry()
-      .with(fmt::layer())
-      .with(
-          EnvFilter::try_from_env("MOBILE_CAM_LOG")
-              .unwrap_or_else(|_| if cfg!(debug_assertions) {
-                  EnvFilter::new("mobile_cam=debug")
-              } else {
-                  EnvFilter::new("mobile_cam=info")
-              }),
-      )
-      .init();
-  
-  
-  let (cert, key) = generate_simple_self_signed(&[]).map_or_else(|e| {
-    tracing::error!("Failed to generate TLS certificate: {e}");
-    exit(1) 
-  }, |c| (c.cert.into(), c.signing_key.into()));
+    .with(fmt::layer())
+    .with(
+      EnvFilter::try_from_env("MOBILE_CAM_LOG").unwrap_or_else(|_| {
+        if cfg!(debug_assertions) {
+          EnvFilter::new("mobile_cam=debug")
+        } else {
+          EnvFilter::new("mobile_cam=info")
+        }
+      }),
+    )
+    .init();
+
+  let (cert, key) = generate_simple_self_signed(&[]).map_or_else(
+    |e| {
+      tracing::error!("Failed to generate TLS certificate: {e}");
+      exit(1)
+    },
+    |c| (c.cert.into(), c.signing_key.into()),
+  );
 
   let tls_config = ServerConfig::builder()
     .with_no_client_auth()
@@ -65,7 +71,7 @@ async fn main() -> std::io::Result<()> {
           IpAddr::V6(ipv6) => tracing::info!("  https://[{}]:3000", ipv6),
         }
       }
-    },
+    }
     Err(e) => {
       tracing::error!("Failed to retrieve network interfaces: {e}");
       tracing::info!("Server is running on https://localhost:3000");
@@ -78,10 +84,14 @@ async fn main() -> std::io::Result<()> {
       .service(incoming_socket)
       .service(index)
   })
-  .bind_rustls_0_23([
-    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 3000)),
-    SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 3000, 0, 0)),
-  ].as_slice(), tls_config)?
+  .bind_rustls_0_23(
+    [
+      SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 3000)),
+      SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 3000, 0, 0)),
+    ]
+    .as_slice(),
+    tls_config,
+  )?
   .run()
   .await
 }

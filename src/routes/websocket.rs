@@ -11,7 +11,9 @@ use tokio::time::sleep;
 use tracing::Instrument;
 
 use crate::{
-  CONN_TIMEOUT, MSG_TIMEOUT, app_state::{AppState}, server::{Commands, Roles, message_handler}
+  CONN_TIMEOUT, MSG_TIMEOUT,
+  app_state::AppState,
+  server::{Commands, Roles, message_handler},
 };
 
 async fn timeout(session: Session) {
@@ -39,17 +41,21 @@ async fn handle_message(
       tracing::info!("Connection closed with reason: {reason:?}");
 
       if role.is_streamer() {
-        tracing::debug!("Notifying viewers and controllers about streamer disconnection for session {session_id}");
+        tracing::debug!(
+          "Notifying viewers and controllers about streamer disconnection for session {session_id}"
+        );
         let consumers = app_state.get_conns(|u| u.role.is_viewer() || u.role.is_controller());
         for mut conn in consumers {
           let _ = conn.text(Commands::K { id: session_id }.to_string()).await;
         }
       }
 
-      return Some(reason)
-    },
+      return Some(reason);
+    }
 
-    AggregatedMessage::Binary(data) => match ByteString::try_from(data).inspect(|_| tracing::debug!("Received text content on a binary message, treating as text")) {
+    AggregatedMessage::Binary(data) => match ByteString::try_from(data)
+      .inspect(|_| tracing::debug!("Received text content on a binary message, treating as text"))
+    {
       Ok(v) => v,
       Err(e) => {
         tracing::warn!("Unexpected binary message from session {session_id}: {e}");
@@ -66,7 +72,6 @@ async fn handle_message(
 
   None
 }
-  
 
 #[derive(Debug, Deserialize)]
 struct WebSocketQuery {
@@ -82,12 +87,10 @@ async fn incoming_socket(
   app_state: Data<AppState>,
   query: web::Query<WebSocketQuery>,
 ) -> Result<HttpResponse, Error> {
-  let role = match query.role.as_deref()
-  {
+  let role = match query.role.as_deref() {
     Some("streamer") => Roles::Streamer,
     Some("viewer") => {
-      let Some(viewing_id) = query.watch_id
-      else {
+      let Some(viewing_id) = query.watch_id else {
         tracing::warn!("Viewer role requires watch_id query parameter set");
         return Ok(
           HttpResponse::BadRequest().body("watch_id value isn't provided for viewer role!"),
@@ -117,7 +120,9 @@ async fn incoming_socket(
     Roles::Streamer => {
       tracing::info!("Streamer connected with session ID {session_id}");
 
-      let _ = session.text(Commands::L { id: session_id }.to_string()).await; // sends L as is to Streamer, letting them know their session ID
+      let _ = session
+        .text(Commands::L { id: session_id }.to_string())
+        .await; // sends L as is to Streamer, letting them know their session ID
 
       for mut init_session in app_state
         .get_conns(|user_data| user_data.role.is_controller() || user_data.role.is_viewer())
