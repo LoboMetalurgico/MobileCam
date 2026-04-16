@@ -1,5 +1,5 @@
 use actix_web::{App, HttpServer, web::Data};
-use get_if_addrs::get_if_addrs;
+use if_addrs::get_if_addrs;
 use rcgen::generate_simple_self_signed;
 use rustls::ServerConfig;
 use std::{
