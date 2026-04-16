@@ -1,13 +1,15 @@
-use std::{
-  fmt,
-  str::FromStr,
-};
+use std::{fmt, str::FromStr};
 
 use actix_web::web::Data;
 use actix_ws::Session;
 use bytestring::ByteString;
 
-use crate::{AppState, app_state::{Role, SessionId}, commands::b_command, log};
+use crate::{
+  AppState,
+  app_state::{Role, SessionId},
+  commands::b_command,
+  log,
+};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Quality {
@@ -158,8 +160,7 @@ impl FromStr for Commands {
           Ok(Self::E { id })
         } else if cmd == 'l' {
           Ok(Self::L { id })
-        }
-         else {
+        } else {
           Ok(Self::K { id })
         }
       }
@@ -221,20 +222,37 @@ pub async fn message_handler(
     }
 
     Commands::D => {
-      
-      if let Some(viewer_index) = session_id.as_viewer() {
-        if let Some(Some(mut streamer_session)) = app_state.get_streamer_session_from_viewer(viewer_index) {
+      if let Some(viewer_index) = session_id.as_viewer()
+        && let Some(streamer_session) = app_state.get_streamer_session_from_viewer(viewer_index)
+      {
+        if let Some(mut streamer_session) = streamer_session {
           let _ = streamer_session
             .text(Commands::E { id: viewer_index }.to_string())
             .await;
         } else {
-          log("[Warn] Non viewer asked for streamer", None);
+          log(
+            "[Warn] Viewer asked for streamer but is not watching anyone",
+            None,
+          );
         }
+      } else {
+        log(
+          "[Warn] Non-viewer or a invalid viewer asked for streamer",
+          None,
+        );
       }
     }
     Commands::F(data) => {
       if let Some(mut remote_session) = app_state.get_session((Role::Viewer, data.id).into()) {
-        let _ = remote_session.text(Commands::F(JSONBody { body: data.body, id: *session_id }).to_string()).await; // sends F as is to viewer
+        let _ = remote_session
+          .text(
+            Commands::F(JSONBody {
+              body: data.body,
+              id: *session_id,
+            })
+            .to_string(),
+          )
+          .await; // sends F as is to viewer
       } else {
         log("[Warn] Streamer offered to no one", None);
       }
@@ -242,7 +260,15 @@ pub async fn message_handler(
 
     Commands::G(data) => {
       if let Some(mut remote_session) = app_state.get_session((Role::Viewer, data.id).into()) {
-        let _ = remote_session.text(Commands::G(JSONBody { body: data.body, id: *session_id }).to_string()).await; // sends G as is to Viewer
+        let _ = remote_session
+          .text(
+            Commands::G(JSONBody {
+              body: data.body,
+              id: *session_id,
+            })
+            .to_string(),
+          )
+          .await; // sends G as is to Viewer
       } else {
         log("[Warn] Streamer sent candidate to no one", None);
       }
@@ -250,7 +276,15 @@ pub async fn message_handler(
 
     Commands::H(data) => {
       if let Some(mut remote_session) = app_state.get_session((Role::Streamer, data.id).into()) {
-        let _ = remote_session.text(Commands::H(JSONBody { body: data.body, id: *session_id }).to_string()).await; // sends H as is to Streamer
+        let _ = remote_session
+          .text(
+            Commands::H(JSONBody {
+              body: data.body,
+              id: *session_id,
+            })
+            .to_string(),
+          )
+          .await; // sends H as is to Streamer
       } else {
         log("[Warn] Streamer sent candidate to no one", None);
       }
@@ -258,16 +292,20 @@ pub async fn message_handler(
 
     Commands::I { id, quality } => {
       if let Some(mut remote_session) = app_state.get_session((Role::Streamer, id).into()) {
-        let _ = remote_session.text(Commands::I { id, quality }.to_string()).await; // sends I as is to Streamer
+        let _ = remote_session
+          .text(Commands::I { id, quality }.to_string())
+          .await; // sends I as is to Streamer
       } else {
         log("[Warn] Controller sent quality request to no one", None);
-      } 
+      }
     }
 
     Commands::J { body } => {
       for mut remote_session in app_state.get_all_controllers_and_viewers_sessions() {
-        let _ = remote_session.text(Commands::J { body: body.clone() }.to_string()).await; // Broadcast J for everyone except streamers
-      } 
+        let _ = remote_session
+          .text(Commands::J { body: body.clone() }.to_string())
+          .await; // Broadcast J for everyone except streamers
+      }
     }
 
     _ => {}
