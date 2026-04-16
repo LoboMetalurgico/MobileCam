@@ -7,7 +7,7 @@ use actix_web::web::Data;
 use actix_ws::Session;
 use bytestring::ByteString;
 
-use crate::{AppState, commands::b_command, log};
+use crate::{AppState, commands::b_command};
 
 #[derive(Debug, Clone, PartialEq, Copy, Eq)]
 pub enum Roles {
@@ -74,7 +74,7 @@ impl fmt::Display for Quality {
 
 impl FromStr for Quality {
   fn from_str(s: &str) -> Result<Self, Self::Err> {
-    Self::try_from(u8::from_str(s).map_err(|_| ())?)
+    Self::try_from(u8::from_str(s).inspect_err(|e| tracing::warn!("Failed to parse quality: {e}")).map_err(|_| ())?)
   }
 
   type Err = ();
@@ -101,12 +101,12 @@ impl fmt::Display for JSONBody {
 impl FromStr for JSONBody {
   fn from_str(s: &str) -> Result<Self, Self::Err> {
     let mut parts = s.split(":");
-    let id = parts.next().ok_or(())?;
+    let id = parts.next().ok_or(()).inspect_err(|_| tracing::warn!("Can't get the session ID"))?;
     let collected_body = parts.collect::<Vec<_>>().join(":");
-    let json_body = collected_body.strip_prefix("#").ok_or(())?;
+    let json_body = collected_body.strip_prefix("#").ok_or(()).inspect_err(|_| tracing::warn!("Can't get the JSON body"))?;
     Ok(Self {
       body: json_body.to_string(),
-      id: u8::from_str(id).map_err(|_| ())?,
+      id: u8::from_str(id).inspect_err(|e| tracing::warn!("Failed to parse session ID: {e}")).map_err(|_| ())?,
     })
   }
 
@@ -177,7 +177,7 @@ impl FromStr for Commands {
       'd' => Ok(Self::D),
 
       'e' | 'k' | 'l' => {
-        let id = u8::from_str(&rest).map_err(|_| ())?;
+        let id = u8::from_str(&rest).inspect_err(|e| tracing::warn!("Failed to parse session ID: {e}")).map_err(|_| ())?;
         if cmd == 'e' {
           Ok(Self::E { id })
         } else if cmd == 'l' {
@@ -199,8 +199,8 @@ impl FromStr for Commands {
         let id_part = parts.next().ok_or(())?;
         let quality_part = parts.next().ok_or(())?;
 
-        let id = u8::from_str(id_part).map_err(|_| ())?;
-        let quality = Quality::from_str(quality_part)?;
+        let id = u8::from_str(id_part).inspect_err(|e| tracing::warn!("Failed to parse session ID: {e}")).map_err(|_| ())?;
+        let quality = Quality::from_str(quality_part).map_err(|_| ())?;
 
         Ok(Self::I { id, quality })
       }
@@ -234,8 +234,9 @@ pub async fn message_handler(
   role: Roles,
   content: ByteString,
 ) {
+  tracing::trace!("Handling message: {content:?}");
   let Ok(command) = Commands::from_str(&content) else {
-    log(&format!("Invalid command: {content}"), None);
+    tracing::warn!("Received invalid command from session: {content}");
     return;
   };
 
@@ -252,7 +253,7 @@ pub async fn message_handler(
           .text(Commands::E { id: session_id }.to_string())
           .await;
       } else {
-        log("[Warn] Non viewer asked for streamer", None);
+        tracing::warn!("Non-viewer asked for streamer");
       }
     }
     Commands::F(data) => {
@@ -260,7 +261,7 @@ pub async fn message_handler(
       if let Some(mut connection) = app_state.get_connection(data.id) {
         let _ = connection.text(Commands::F(JSONBody { body: data.body, id: session_id }).to_string()).await; // sends F as is to viewer
       } else {
-        log("[Warn] Streamer offered to no one", None);
+        tracing::warn!("Streamer tried to send offer to a non-existent connection");
       }
     }
 
@@ -268,7 +269,7 @@ pub async fn message_handler(
       if let Some(mut connection) = app_state.get_connection(data.id) {
         let _ = connection.text(Commands::G(JSONBody { body: data.body, id: session_id }).to_string()).await; // sends G as is to Viewer
       } else {
-        log("[Warn] Streamer sent candidate to no one", None);
+        tracing::warn!("Streamer tried to send answer to a non-existent connection");
       }
     }
 
@@ -276,7 +277,7 @@ pub async fn message_handler(
       if let Some(mut connection) = app_state.get_connection(data.id) {
         let _ = connection.text(Commands::H(JSONBody { body: data.body, id: session_id }).to_string()).await; // sends H as is to Streamer
       } else {
-        log("[Warn] Streamer sent candidate to no one", None);
+        tracing::warn!("Streamer tried to send candidate to a non-existent connection");
       }
     }
 
@@ -284,7 +285,7 @@ pub async fn message_handler(
       if let Some(mut connection) = app_state.get_connection(id) {
         let _ = connection.text(Commands::I { id, quality }.to_string()).await; // sends I as is to Streamer
       } else {
-        log("[Warn] Controller sent quality request to no one", None);
+        tracing::warn!("Controller sent quality request to a non-existent connection");
       } 
     }
 
@@ -292,9 +293,11 @@ pub async fn message_handler(
       let connection = app_state.get_conns(|data| { data.role.is_viewer() || data.role.is_controller() });
       for mut conn in connection {
         let _ = conn.text(Commands::J { body: body.clone() }.to_string()).await; // Broadcast J for everyone except streamers
-      } 
+      }
     }
 
-    _ => {}
+    _ => {
+      tracing::debug!("Command not implemented: {command}");
+    }
   };
 }

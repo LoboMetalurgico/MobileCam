@@ -1,8 +1,20 @@
 {
   "cSpell.words": [
     "actix",
+    "addrs",
     "asciiart",
     "bytestring",
-    "recv"
-  ]
+    "codegen",
+    "dashmap",
+    "fxhash",
+    "rcgen",
+    "recv",
+    "rustls",
+    "serde",
+    "smallvec",
+    "walkdir"
+  ],
+  "editor.tabSize": 2,
+  "editor.indentSize": "tabSize",
+  "editor.autoIndent": "none"
 }
