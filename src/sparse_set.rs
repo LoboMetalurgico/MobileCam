@@ -99,7 +99,7 @@ impl<T> SyncSparseSet<T> {
 
     /// Retrieves a value from the [`SparseSet`] by its index and applies a view function to it, returning an `Option<U>`.
     pub fn view<U, F: FnOnce(&T) -> U>(&self, index: usize, view_fn: F) -> Option<U> {
-        self.inner.lock().get(index).map(|value| view_fn(value))
+        self.inner.lock().get(index).map(view_fn)
     }
 
     /// Removes a value from the [`SparseSet`] by its index, returning an `Option<T>`.
@@ -109,7 +109,7 @@ impl<T> SyncSparseSet<T> {
 
     /// Returns a vector of mapped values from the [`SparseSet`] by applying the provided mapping function to each element.
     pub fn map<U, F: Fn((usize, &T)) -> U>(&self, map_fn: F) -> Vec<U> {
-        self.inner.lock().iter().map(|v| map_fn(v)).collect()
+        self.inner.lock().iter().map(map_fn).collect()
     }
 }
 
