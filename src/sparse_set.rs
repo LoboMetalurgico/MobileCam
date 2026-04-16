@@ -37,6 +37,7 @@ impl<T> SparseSet<T> {
 
         self.data.push(value);
         self.dense.push(index);
+        self.sparse[index] = self.data.len() - 1;
         index
     }
 
