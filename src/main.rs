@@ -67,9 +67,17 @@ async fn main() {
       tracing::info!("Server is running on the following addresses:");
       for addr in addrs {
         match addr.ip() {
-          IpAddr::V4(ipv4) => tracing::info!("  https://{}:3000", ipv4),
-          IpAddr::V6(ipv6) => tracing::info!("  https://[{}]:3000", ipv6),
-        }
+          IpAddr::V4(ipv4) => {
+            if !ipv4.is_unspecified() {
+              tracing::info!("  https://{}:3000", ipv4);
+            }
+          }
+          IpAddr::V6(ipv6) => {
+            if !ipv6.is_unspecified() && !ipv6.is_unicast_link_local() {
+              tracing::info!("  https://[{}]:3000", ipv6);
+            }
+          }
+        };
       }
     }
     Err(e) => {
