@@ -25,11 +25,11 @@ async fn index(path: web::Path<String>) -> HttpResponse {
       data.map(|c| (c, mime::TEXT_HTML_UTF_8))
     })
     .map(|(content, content_type)| {
-      tracing::info!("Serving static file with content type: {content_type}");
+      tracing::debug!("Serving static file with content type: {content_type}");
       HttpResponse::Ok().content_type(content_type).body(content)
     })
     .unwrap_or_else(|| {
-      tracing::warn!("File not found");
+      tracing::debug!("File not found");
       HttpResponse::NotFound().body("Not found")
     })
 }
