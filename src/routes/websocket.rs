@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use actix_web::{
   Error, HttpRequest, HttpResponse, get, rt,
@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tokio::time::sleep;
 
 use crate::{
-  CONN_TIMEOUT, MSG_TIMEOUT, app_state::AppState, log, server::{Commands, Roles, message_handler}
+  CONN_TIMEOUT, MSG_TIMEOUT, app_state::{AppState, Role, SessionId}, log, server::{Commands, message_handler}
 };
 
 fn create_timeout_task(session: Session) -> rt::task::JoinHandle<()> {
@@ -25,19 +25,22 @@ fn create_timeout_task(session: Session) -> rt::task::JoinHandle<()> {
   })
 }
 
-async fn handle_msg(
-  msg: AggregatedMessage,
+#[derive(Debug, Deserialize)]
+struct WebSocketQuery {
+  role: Option<String>,
+}
+
+async fn handle_message(
   app_state: Data<AppState>,
-  session_id: u8,
-  session: &Session,
-  role: Roles,
+  session_id: SessionId,
+  session: &mut Session,
+  message: AggregatedMessage,
 ) -> Option<Option<CloseReason>> {
-  let content = match msg {
+  let content = match message {
     AggregatedMessage::Close(reason) => {
-      if role.is_streamer() {
-        let consumers = app_state.get_conns(|u| u.role.is_viewer() || u.role.is_controller());
-        for mut conn in consumers {
-          let _ = conn.text(Commands::K { id: session_id }.to_string()).await;
+      if session_id == Role::Streamer {
+        for mut conn in app_state.get_all_controllers_and_viewers_sessions() {
+          let _ = conn.text(Commands::K { id: *session_id }.to_string()).await;
         }
       }
 
@@ -57,15 +60,9 @@ async fn handle_msg(
     _ => return None,
   };
 
-  message_handler(app_state, (session_id, session), role, content).await;
+  message_handler(app_state, session_id, session, content).await;
 
   None
-}
-
-#[derive(Debug, Deserialize)]
-struct WebSocketQuery {
-  role: Option<String>,
-  watch_id: Option<u8>,
 }
 
 #[get("/ws")]
@@ -75,60 +72,34 @@ async fn incoming_socket(
   app_state: Data<AppState>,
   query: web::Query<WebSocketQuery>,
 ) -> Result<HttpResponse, Error> {
-  let role = match query.role.as_deref()
-  {
-    Some("streamer") => Roles::Streamer,
-    Some("viewer") => {
-      let Some(viewing_id) = query.watch_id
-      else {
-        log("Viewer role requires watch_id query parameter set.", None);
-        return Ok(
-          HttpResponse::BadRequest().body("watch_id value isn't provided for viewer role!"),
-        );
-      };
-      Roles::Viewer(viewing_id)
-    }
-    Some("controller") => Roles::Controller,
-    _ => {
-      log("WebSocket connection requires role query parameter set.", None);
-      return Ok(
-        HttpResponse::BadRequest().body("Missing or invalid role query parameter in request!"),
-      );
-    }
-  };
-
-  let Some(session_id) = app_state.recycle() else {
-    log("[Warn] Too many sockets, Memory full!", None);
-    return Ok(HttpResponse::InsufficientStorage().body("Too many sockets already connected!"));
+  let Some(role) = query.role.as_deref().and_then(|s| Role::from_str(s).ok()) else {
+    log("WebSocket connection requires a valid role query parameter!", None);
+    return Ok(
+      HttpResponse::BadRequest().body("Missing or invalid role query parameter in request!"),
+    );
   };
 
   let (res, mut session, msg_stream) = actix_ws::handle(&req, stream)?;
 
-  app_state.register(session_id, session.clone(), role);
+  let session_id = app_state.insert(role, session.clone());
 
   match role {
-    Roles::Streamer => {
-      log(&format!("Streamer connected with session ID {session_id}"), None);
+    Role::Streamer => {
+      log(&format!("Streamer connected with session ID {session_id:?}"), None);
 
-      let _ = session.text(Commands::L { id: session_id }.to_string()).await; // sends L as is to Streamer, letting them know their session ID
+      let _ = session.text(Commands::L { id: *session_id }.to_string()).await; // sends L as is to Streamer, letting them know their session ID
 
-      for mut init_session in app_state
-        .get_conns(|user_data| user_data.role.is_controller() || user_data.role.is_viewer())
-      {
+      for mut init_session in app_state.get_all_controllers_and_viewers_sessions() {
         let _ = init_session.text("a").await;
       }
     }
-    Roles::Viewer(data) => {
-      log(&format!("Viewer connected with session ID {session_id}, watching {data}"), None);
-
-      if let Some(mut conn) = app_state.get_connection(data) {
-        let _ = conn.text(format!("e:{session_id}")).await;
-      }
+    Role::Viewer => {
+      log(&format!("Viewer connected with session ID {session_id:?}"), None);
     }
-    Roles::Controller => {
-      log(&format!("Controller connected with session ID {session_id}"), None);
+    Role::Controller => {
+      log(&format!("Controller connected with session ID {session_id:?}"), None);
     }
-  }
+  };
 
   rt::spawn(async move {
     let mut timeout_task = create_timeout_task(session.clone());
@@ -140,7 +111,7 @@ async fn incoming_socket(
       tokio::select! {
         Some(Ok(msg)) = msg_stream.recv() => {
           timeout_task.abort();
-          if let Some(v) = handle_msg(msg, app_state.clone(), session_id, &session, role).await {
+          if let Some(v) = handle_message(app_state.clone(), session_id, &mut session, msg).await {
             break v;
           } else {
             timeout_task = create_timeout_task(session.clone());
@@ -159,7 +130,7 @@ async fn incoming_socket(
     };
 
     let _ = session.close(close_reason).await;
-    app_state.discard(session_id);
+    app_state.remove_session(session_id);
   });
 
   Ok(res)

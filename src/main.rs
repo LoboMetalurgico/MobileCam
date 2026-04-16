@@ -12,6 +12,7 @@ mod app_state;
 mod routes;
 mod server;
 mod commands;
+mod sparse_set;
 
 mod frontend {
   include!(concat!(env!("OUT_DIR"), "/frontend.rs"));
