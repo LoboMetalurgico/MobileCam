@@ -248,7 +248,7 @@ pub async fn message_handler(
 ) {
   tracing::trace!("Handling message: {content:?}");
   let Ok(command) = Commands::from_str(&content) else {
-    tracing::warn!("Received invalid command from session: {content}");
+    tracing::warn!("Invalid command: {content}");
     return;
   };
 
