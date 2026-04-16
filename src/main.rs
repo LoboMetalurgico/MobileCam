@@ -16,8 +16,9 @@ mod commands;
 mod frontend {
   include!(concat!(env!("OUT_DIR"), "/frontend.rs"));
 
-  pub fn get_asset(path: &str) -> Option<&'static [u8]> {
-    FRONTEND.get(path)
+  pub fn get(path: &str) -> Option<&'static [u8]> {
+    FRONTEND.get(path).copied()
+  }
 }
 
 const MSG_TIMEOUT: u64 = 5; // seconds
@@ -101,11 +102,13 @@ async fn main() -> std::io::Result<()> {
       exit(1)
     });
 
-  HttpServer::new(|| {
+  let app_state = Data::new(AppState::new());
+
+  HttpServer::new(move || {
     App::new()
-      .app_data(Data::new(AppState::new()))
-      .service(index)
+      .app_data(app_state.clone())
       .service(incoming_socket)
+      .service(index)
   })
   .bind_rustls_0_23("0.0.0.0:3000", tls_config)?
   .run()

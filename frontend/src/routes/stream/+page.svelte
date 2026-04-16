@@ -5,27 +5,32 @@
       { urls: "stun:stun1.l.google.com:19302" },
     ],
   };
-  type quality = "high" | "medium" | "low";
+
+  type Quality = "high" | "medium" | "low";
+
   const QUALITY_PROFILES = {
     high: { width: 1920, height: 1080, frameRate: 30, bitrate: 8_000_000 },
     medium: { width: 1280, height: 720, frameRate: 24, bitrate: 2_000_000 },
     low: { width: 640, height: 480, frameRate: 15, bitrate: 500_000 },
   };
-  let currentQuality = $state<quality>("high");
-  let localStream = $state<MediaStream>();
-  const peerConnections = $state<{ [key: string]: RTCPeerConnection }>({}); // viewerSocketId → RTCPeerConnection
-  let zoomValue = $state(1);
-  let maxZoom = $state(5);
-  let minZoom = $state(1);
-  let nativeZoomSupported = $state(false);
-  let wakeLock = $state<WakeLockSentinel>();
-  const facingMode = "environment"; // rear camera by default
 
+  let currentQuality = $state<Quality>("high");
+  let localStream = $state<MediaStream>();
   let preview: HTMLVideoElement;
 
-  let socket = $state<WebSocket>();
+  // Hoisted state
+  let peerConnections: Record<string, RTCPeerConnection> = {};
+  let candidateQueues: Record<string, RTCIceCandidateInit[]> = {}; // Queue for the race condition
+  let ws: WebSocket | undefined = undefined;
 
-  function applyEncodingParams(quality: quality, pc: RTCPeerConnection) {
+  let zoomValue = 1;
+  let maxZoom = 5;
+  let minZoom = 1;
+  let nativeZoomSupported = false;
+  let wakeLock: WakeLockSentinel | null = null;
+  const facingMode = "environment"; 
+
+  function applyEncodingParams(quality: Quality, pc: RTCPeerConnection) {
     if (!pc) return;
     const q = QUALITY_PROFILES[quality];
     for (const sender of pc.getSenders()) {
@@ -43,24 +48,30 @@
     if (peerConnections[viewerSocketId]) {
       peerConnections[viewerSocketId].close();
     }
+    
     const pc = new RTCPeerConnection(ICE_CONFIG);
     peerConnections[viewerSocketId] = pc;
+    candidateQueues[viewerSocketId] = []; // Initialize queue for this viewer
 
     for (const track of localStream.getTracks()) {
       pc.addTrack(track, localStream);
     }
+    
     applyEncodingParams(currentQuality, pc);
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate)
-        socket?.send(`g:${viewerSocketId}:${JSON.stringify(candidate)}`);
+      if (candidate) {
+        ws?.send(`g:${viewerSocketId}:#${JSON.stringify(candidate)}`);
+      }
     };
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState !== "failed") return;
       delete peerConnections[viewerSocketId];
+      delete candidateQueues[viewerSocketId];
       pc.close();
     };
+    
     return pc;
   }
 
@@ -84,22 +95,21 @@
         videoTransceiver.setCodecPreferences(h264Codecs);
       } else {
         console.warn("H.264 is not supported by this browser.");
-        alert("no h264 codec");
       }
     }
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    socket?.send(`f:${viewerId}:${JSON.stringify(pc.localDescription)}`);
+    ws?.send(`f:${viewerId}:#${JSON.stringify(pc.localDescription)}`);
   }
 
-  function stringToQuality(string: string): quality {
+  function stringToQuality(string: string): Quality {
     if (string === "3") return "low";
     if (string === "2") return "medium";
     return "high";
   }
 
-  async function applyQuality(quality: quality) {
+  async function applyQuality(quality: Quality) {
     if (!QUALITY_PROFILES[quality]) return;
     currentQuality = quality;
     const q = QUALITY_PROFILES[quality];
@@ -125,13 +135,11 @@
   function applyZoom(val: number) {
     if (nativeZoomSupported && localStream) {
       const track = localStream.getVideoTracks()[0];
-      // chrome only zoom, needs as
       track
         .applyConstraints({
           advanced: [{ zoom: val } as MediaTrackConstraintSet],
         })
         .catch(() => {
-          // Fallback to CSS zoom if native fails
           preview.style.transform = `scale(${val})`;
           nativeZoomSupported = false;
         });
@@ -140,24 +148,14 @@
       nativeZoomSupported = false;
     }
 
-    if (!nativeZoomSupported) {
-      const track = localStream
-        ? (localStream.getVideoTracks()[0] as unknown as {
-            getSettings: () => {
-              width: number;
-              height: number;
-            };
-          })
-        : {
-            getSettings: () => {
-              return { width: 1920, height: 1080 };
-            },
-          };
-      socket?.send(
+    if (!nativeZoomSupported && localStream) {
+      const track = localStream.getVideoTracks()[0];
+      const settings = track.getSettings();
+      ws?.send(
         `j:${JSON.stringify({
           zoom: val,
-          rotate: track.getSettings().width < track.getSettings().height,
-        })}`,
+          rotate: (settings.width ?? 1920) < (settings.height ?? 1080),
+        })}`
       );
     }
   }
@@ -165,8 +163,11 @@
   let initialPinchDistance = $state(0);
   let pinchStartZoom = $state(1);
 
+  // Manage DOM touch events safely
   $effect(() => {
-    preview.addEventListener('touchstart', e => {
+    if (!preview) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
         initialPinchDistance = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
@@ -174,9 +175,9 @@
         );
         pinchStartZoom = zoomValue;
       }
-    }, { passive: true });
-  
-    preview.addEventListener('touchmove', e => {
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 2) return;
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
@@ -185,8 +186,16 @@
       const scale = dist / initialPinchDistance;
       const newZoom = Math.max(minZoom, Math.min(maxZoom, pinchStartZoom * scale));
       applyZoom(newZoom);
-    }, { passive: true });
-  })
+    };
+
+    preview.addEventListener('touchstart', handleTouchStart, { passive: true });
+    preview.addEventListener('touchmove', handleTouchMove, { passive: true });
+
+    return () => {
+      preview.removeEventListener('touchstart', handleTouchStart);
+      preview.removeEventListener('touchmove', handleTouchMove);
+    };
+  });
 
   async function acquireWakeLock() {
     try {
@@ -194,7 +203,7 @@
       wakeLock.addEventListener('release', () => {
         document.addEventListener('visibilitychange', reacquireWakeLock, { once: true });
       });
-    } catch { /* empty */ };
+    } catch { /* empty */ }
   }
 
   async function reacquireWakeLock() {
@@ -224,71 +233,93 @@
 
       preview.srcObject = localStream;
 
-      // Check native zoom support
       const track = localStream.getVideoTracks()[0];
       const caps = track.getCapabilities?.() || {};
+      
       // @ts-expect-error chrome only feature
       if (caps.zoom) {
         nativeZoomSupported = true;
         // @ts-expect-error chrome only feature
-        minZoom   = caps.zoom.min;
+        minZoom = caps.zoom.min;
         // @ts-expect-error chrome only feature
-        maxZoom   = caps.zoom.max;
+        maxZoom = caps.zoom.max;
       }
 
-      socket = new WebSocket(`https://${window.location.host}/ws`)
-    } catch {
+      // Ensure proper WebSocket protocol
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws?role=streamer`);
+
+      ws.addEventListener("error", (err) => console.error("WebSocket Error:", err));
+      
+      ws.addEventListener("close", () => {
+        // window.location.reload();
+      });
+
+      ws.addEventListener("message", async (event) => {
+        let commandStr: string = event.data.toString();
+        const parts = commandStr.split(":");
+        const command = parts.shift();
+        const params = parts.join(":");
+        
+        switch (command) {
+          case "e": // Viewer requests offer
+            await createOffer(params);
+            break;
+            
+          case "h": { // Received ICE candidate from Viewer
+            const candidateString = params.split(":");
+            const viewerId = candidateString.shift();
+            if (!viewerId) return;
+            
+            const candidate = JSON.parse(candidateString.join(":").slice(1));
+            const pc = peerConnections[viewerId];
+            
+            if (pc && candidate) {
+              // QUEUE LOGIC: Only add if remote description is set
+              if (pc.remoteDescription && pc.remoteDescription.type) {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              } else {
+                console.log(`Queueing ICE candidate for ${viewerId}`);
+                candidateQueues[viewerId].push(candidate);
+              }
+            }
+            break;
+          }
+
+          case "f": { // Received Answer from Viewer
+            const candidateString = params.split(":");
+            const viewerId = candidateString.shift();
+            if (!viewerId) return;
+
+            const sdp = JSON.parse(candidateString.join(":").slice(1));
+            const pc = peerConnections[viewerId];
+            console.log(`[SIGNALING] Got Answer. Looking for PC with ID: ${viewerId}. Did we find it?`, !!pc);
+
+            if (pc && pc.signalingState !== "stable") {
+              await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+              
+              // QUEUE LOGIC: Flush the queue now that description is set
+              const queue = candidateQueues[viewerId] || [];
+              while (queue.length > 0) {
+                const queuedCandidate = queue.shift();
+                if (queuedCandidate) {
+                  await pc.addIceCandidate(new RTCIceCandidate(queuedCandidate));
+                }
+              }
+            }
+            break;
+          }
+          
+          case "i": // Apply quality change
+            await applyQuality(stringToQuality(params.split(":")[1]));
+            break;
+        }
+      });
+    } catch (err) {
+      console.error(err);
       alert("Could not start camera");
     }
   }
-
-  $effect(() => {
-    socket?.addEventListener("error", () => {
-      alert(window.location.reload());
-    });
-  
-    socket?.addEventListener("close", () => {
-      window.location.reload();
-    });
-    socket?.addEventListener("message", async (event) => {
-      let commandStr: string = event.data.toString();
-      const parts = commandStr.split(":");
-      const command = parts.shift();
-      const params = parts.join(":");
-      switch (command) {
-        case "e": // Create offer
-          await createOffer(params);
-          break;
-        case "h": {
-          // ICe candidate
-          const candidateString = params.split(":");
-          const viewerId = candidateString.shift();
-          if (!viewerId) return;
-          const candidate = JSON.parse(candidateString.join(":"));
-          const pc = peerConnections[viewerId];
-          if (pc && candidate) {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          }
-          break;
-        }
-        case "f": {
-          // Answer
-          const candidateString = params.split(":");
-          const viewerId = candidateString.shift();
-          if (!viewerId) return;
-          const sdp = JSON.parse(candidateString.join(":"));
-          const pc = peerConnections[viewerId];
-          if (pc && pc.signalingState !== "stable") {
-            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-          }
-          break;
-        }
-        case "i":
-          await applyQuality(stringToQuality(params.split(":")[1]));
-          break;
-      }
-    });
-  });
 </script>
 
 <video id="preview" autoplay muted playsinline bind:this={preview}></video>
@@ -307,13 +338,14 @@
     position: absolute;
     top: 0;
     left: 0;
+    object-fit: cover; /* Added to prevent stretching */
   }
 
   button {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: fit-content;
-    height: fit-content;
+    top: 20px;
+    left: 20px;
+    padding: 10px 20px;
+    z-index: 10;
   }
 </style>

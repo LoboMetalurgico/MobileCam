@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { page } from "$app/state";
+  import { page } from "$app/state";
 
   const ICE_CONFIG = {
     iceServers: [
@@ -8,62 +8,111 @@
     ]
   };
 
-  const streamer = $derived(page.url.searchParams.get('streamer') || '');
-
+  let streamer = $derived(page.url.searchParams.get('streamer') || '');
   let preview: HTMLVideoElement;
 
-  const socket = new WebSocket(`https://${page.url.host}/ws`);
-  let pc = $state<RTCPeerConnection>();
+  $effect(() => {
+    const wsProtocol = page.url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const internalSocket = new WebSocket(`${wsProtocol}//${page.url.host}/ws?role=viewer&watch_id=${streamer}`);
+    
+    let internalPc: RTCPeerConnection | undefined = undefined;
+    let candidateQueue: RTCIceCandidateInit[] = [];
 
-  socket.addEventListener('error', (data) => {
-    console.error(data);
-    alert("ERROR");
-    window.location.reload();
-  });
+    internalSocket.addEventListener('error', (err) => console.error("WebSocket Error:", err));
 
-  socket.addEventListener('close', () => { window.location.reload() });
-
-  socket.addEventListener('message', async (event) => {
-    let commandStr: string = event.data.toString();
+    internalSocket.addEventListener('message', async (event) => {
+      const commandStr: string = event.data.toString();
       const parts = commandStr.split(":");
       const command = parts.shift();
       const params = parts.join(":");
+      
       switch (command) {
-        case 'f': {
+        case 'f': { // Received Offer
           const paramsSplit = params.split(":");
           paramsSplit.shift();
-          const peerConnLocalDescription = JSON.parse(paramsSplit.join(":"));
-          pc = new RTCPeerConnection(ICE_CONFIG);
+          const peerConnRemoteDescription = JSON.parse(paramsSplit.join(":").slice(1));
 
-          pc.ontrack = (e) => {
+          if (internalPc) internalPc.close();
+
+          internalPc = new RTCPeerConnection(ICE_CONFIG);
+
+          // FIX: Simplified track handling
+          internalPc.ontrack = (e) => {
+            console.log("Track received!", e.track.kind);
             if (preview.srcObject !== e.streams[0]) {
               preview.srcObject = e.streams[0];
-              const videoData = e.streams[0].getVideoTracks()[0].getSettings();
-              preview.style.width = videoData.width + 'px';
-              preview.style.height = videoData.height + 'px';
-              console.log(`Stream size: Width: ${videoData.width} height: ${videoData.height}`)
-              preview.play();
+              preview.play().catch((err) => console.error("Error playing video:", err));
             }
           };
 
-          pc.onicecandidate = ({ candidate }) => {
-            if (candidate) socket.send(`h:${streamer}:${JSON.stringify(candidate)}`);
+          internalPc.onicecandidate = ({ candidate }) => {
+            if (candidate) internalSocket.send(`h:${streamer}:#${JSON.stringify(candidate)}`);
           };
 
-          pc.onconnectionstatechange = () => {
-            if (!pc) return;
-            const s = pc.connectionState;
-            if (s === 'failed') pc.close();
+          // DIAGNOSTICS: Monitor the connection state
+          internalPc.onconnectionstatechange = () => {
+            if (!internalPc) return;
+            console.log("WebRTC Connection State:", internalPc.connectionState);
+            if (internalPc.connectionState === 'failed') {
+              console.error("WebRTC connection failed. A TURN server might be required.");
+              internalPc.close();
+            }
           };
 
-          await pc.setRemoteDescription(new RTCSessionDescription(peerConnLocalDescription));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socket.send(`f:${streamer}:${JSON.stringify(pc.localDescription)}`);
+          await internalPc.setRemoteDescription(new RTCSessionDescription(peerConnRemoteDescription));
+          
+          const answer = await internalPc.createAnswer();
+          await internalPc.setLocalDescription(answer);
+
+          internalSocket.send(`f:${streamer}:#${JSON.stringify(internalPc.localDescription)}`);
+
+          while (candidateQueue.length > 0) {
+            const queuedCandidate = candidateQueue.shift();
+            if (queuedCandidate) {
+              await internalPc.addIceCandidate(new RTCIceCandidate(queuedCandidate));
+            }
+          }
+          break;
+        }
+
+        case 'g': { // Received ICE Candidate
+          const candidateString = params.split(":");
+          candidateString.shift();
+          const candidate = JSON.parse(candidateString.join(":").slice(1));
+          
+          if (internalPc && internalPc.remoteDescription && internalPc.remoteDescription.type) {
+            await internalPc.addIceCandidate(new RTCIceCandidate(candidate));
+          } else {
+            candidateQueue.push(candidate);
+          }
           break;
         }
       }
-  })
+    });
+
+    return () => {
+      internalSocket.close();
+      if (internalPc) internalPc.close();
+    }
+  });
 </script>
 
-<video id="video" autoplay playsinline bind:this={preview}></video>
+<video id="video" autoplay muted playsinline bind:this={preview}></video>
+
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  video {
+    width: 100vw;
+    height: 100vh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    object-fit: cover;
+    background-color: #111; /* Dark background to prove the element is rendering */
+  }
+</style>
