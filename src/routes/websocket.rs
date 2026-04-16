@@ -40,6 +40,7 @@ async fn handle_msg(
           let _ = conn.text(Commands::K { id: session_id }.to_string()).await;
         }
       }
+
       return Some(reason)
     },
 
@@ -89,9 +90,9 @@ async fn incoming_socket(
     }
     Some("controller") => Roles::Controller,
     _ => {
-      log("WebSocket connection requires stream-role query parameter set.", None);
+      log("WebSocket connection requires role query parameter set.", None);
       return Ok(
-        HttpResponse::BadRequest().body("Missing or invalid stream-role query parameter in request!"),
+        HttpResponse::BadRequest().body("Missing or invalid role query parameter in request!"),
       );
     }
   };
@@ -108,6 +109,8 @@ async fn incoming_socket(
   match role {
     Roles::Streamer => {
       log(&format!("Streamer connected with session ID {session_id}"), None);
+
+      let _ = session.text(Commands::L { id: session_id }.to_string()).await; // sends L as is to Streamer, letting them know their session ID
 
       for mut init_session in app_state
         .get_conns(|user_data| user_data.role.is_controller() || user_data.role.is_viewer())
@@ -145,7 +148,12 @@ async fn incoming_socket(
         }
 
         _ = msg_timeout => {
-          let _ = session.ping(b"").await;
+          if session.ping(b"").await.is_err() {
+            break Some(CloseReason {
+              code: 4001.into(),
+              description: Some("Message Timeout".to_string()),
+            });
+          }
         }
       }
     };
