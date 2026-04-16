@@ -144,40 +144,40 @@ async fn incoming_socket(
 
   rt::spawn(async move {
     let mut message_stream = message_stream.aggregate_continuations();
-      let mut timeout_task = rt::spawn(timeout(session.clone()).instrument(tracing::Span::current()));
+    let mut timeout_task = rt::spawn(timeout(session.clone()).instrument(tracing::Span::current()));
 
-      let close_reason = loop {
-        let  message_timeout = sleep(Duration::from_secs(MSG_TIMEOUT));
+    let close_reason = loop {
+      let  message_timeout = sleep(Duration::from_secs(MSG_TIMEOUT));
 
-        tokio::select! {
-          Some(Ok(message)) =  message_stream.recv() => {
-            timeout_task.abort();
-            if let Some(v) = handle_message(message, app_state.clone(), session_id, &session, role).await {
-              tracing::debug!("Closing connection with reason: {v:?}");
-              break v;
-            } else {
-              tracing::trace!("Creating new timeout task");
-              timeout_task = rt::spawn(timeout(session.clone()).instrument(tracing::Span::current()));
-            }
-          }
-
-          _ = message_timeout => {
-            tracing::trace!("Message timeout reached, sending ping to check connection health");
-            if let Err(e) = session.ping(b"").await {
-              tracing::debug!("Failed to send ping: {e}");
-              break Some(CloseReason {
-                code: 4001.into(),
-                description: Some("Message Timeout".to_string()),
-              });
-            }
+      tokio::select! {
+        Some(Ok(message)) =  message_stream.recv() => {
+          timeout_task.abort();
+          if let Some(v) = handle_message(message, app_state.clone(), session_id, &session, role).await {
+            tracing::debug!("Closing connection with reason: {v:?}");
+            break v;
+          } else {
+            tracing::trace!("Creating new timeout task");
+            timeout_task = rt::spawn(timeout(session.clone()).instrument(tracing::Span::current()));
           }
         }
-      };
 
-      let _ = session.close(close_reason).await;
-      app_state.discard(session_id);
-      tracing::info!("Session disconnected and cleaned up");
-    }.instrument(tracing::info_span!(parent: None, "websocket_handler", session_id = session_id, role = ?role)));
+        _ = message_timeout => {
+          tracing::trace!("Message timeout reached, sending ping to check connection health");
+          if let Err(e) = session.ping(b"").await {
+            tracing::debug!("Failed to send ping: {e}");
+            break Some(CloseReason {
+              code: 4001.into(),
+              description: Some("Message Timeout".to_string()),
+            });
+          }
+        }
+      }
+    };
+
+    let _ = session.close(close_reason).await;
+    app_state.discard(session_id);
+    tracing::info!("Session disconnected and cleaned up");
+  }.instrument(tracing::info_span!(parent: None, "websocket_handler", session_id = session_id, role = ?role)));
 
   Ok(res)
 }
