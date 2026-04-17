@@ -8,7 +8,7 @@ use dashmap::DashMap;
 use fxhash::FxHasher32;
 use parking_lot::Mutex;
 
-use crate::{server::{Roles, UserData}};
+use crate::server::{Roles, UserData};
 
 pub struct AppState {
   trash_bin: Mutex<Vec<u8>>,
@@ -26,11 +26,13 @@ impl AppState {
   }
 
   pub fn discard(&self, id: u8) {
+    tracing::debug!("Discarding session with ID {id}");
     self.trash_bin.lock().push(id);
     self.connections.remove(&id);
   }
 
   pub fn recycle(&self) -> Option<u8> {
+    tracing::debug!("Attempting to get a recycled session ID");
     self.trash_bin.lock().pop().or_else(|| {
       self
         .last_session
@@ -42,6 +44,7 @@ impl AppState {
   }
 
   pub fn register(&self, id: u8, session: Session, role: Roles) {
+    tracing::debug!("Registering new session with ID {id} and role {role:?}");
     self.connections.insert(id, UserData { session, role });
   }
 
