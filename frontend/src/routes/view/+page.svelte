@@ -113,6 +113,6 @@
     top: 0;
     left: 0;
     object-fit: cover;
-    background-color: #111; /* Dark background to prove the element is rendering */
+    background-color: #111;
   }
 </style>

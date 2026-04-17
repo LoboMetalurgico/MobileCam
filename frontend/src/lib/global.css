@@ -1,0 +1,20 @@
+:root {
+  --background: #191919;
+  --accent-color: #54ff98;
+}
+
+* {
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--background);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}

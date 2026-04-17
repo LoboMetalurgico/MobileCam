@@ -1,4 +1,15 @@
 <script lang="ts">
+  import { page } from "$app/state";
+  import type { Quality } from "$lib/interfaces/Quality";
+  import { toggleFullScreen } from "$lib/utils/phoneUtils";
+  import Camera from "./camera.svelte";
+
+  function stringToQuality(string: string): Quality {
+    if (string === "3") return "low";
+    if (string === "2") return "medium";
+    return "high";
+  }
+
   const ICE_CONFIG = {
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
@@ -6,49 +17,47 @@
     ],
   };
 
-  type Quality = "high" | "medium" | "low";
-
-  const QUALITY_PROFILES = {
-    high: { width: 1920, height: 1080, frameRate: 30, bitrate: 8_000_000 },
-    medium: { width: 1280, height: 720, frameRate: 24, bitrate: 2_000_000 },
-    low: { width: 640, height: 480, frameRate: 15, bitrate: 500_000 },
-  };
-
-  let currentQuality = $state<Quality>("high");
-  let localStream = $state<MediaStream>();
-  let preview: HTMLVideoElement;
-
   // Hoisted state
   let peerConnections: Record<string, RTCPeerConnection> = {};
   let candidateQueues: Record<string, RTCIceCandidateInit[]> = {}; // Queue for the race condition
-  let ws: WebSocket | undefined = undefined;
+  let ws: WebSocket | null = $state(null);
+  // let sessionId: number | null = $state(null);
+  // svelte-ignore non_reactive_update
+  let camera: Camera;
 
-  let zoomValue = 1;
-  let maxZoom = 5;
-  let minZoom = 1;
-  let nativeZoomSupported = false;
-  let wakeLock: WakeLockSentinel | null = null;
-  const facingMode = "environment"; 
-
-  function applyEncodingParams(quality: Quality, pc: RTCPeerConnection) {
-    if (!pc) return;
-    const q = QUALITY_PROFILES[quality];
-    for (const sender of pc.getSenders()) {
+  function setStreamBandwidth(
+    peerConnection: RTCPeerConnection,
+    maxBitrate: number,
+    maxFramerate: number,
+  ) {
+    for (const sender of peerConnection.getSenders()) {
       if (sender.track?.kind !== "video") continue;
       const params = sender.getParameters();
       if (!params.encodings?.length) params.encodings = [{}];
-      params.encodings[0].maxBitrate = q.bitrate;
-      params.encodings[0].maxFramerate = q.frameRate;
+      params.encodings[0].maxBitrate = maxBitrate;
+      params.encodings[0].maxFramerate = maxFramerate;
       sender.setParameters(params).catch(() => {});
     }
   }
 
+  function setStreamingBandwidth(maxBitrate: number, maxFramerate: number) {
+    for (const pc of Object.values(peerConnections)) {
+      setStreamBandwidth(pc, maxBitrate, maxFramerate);
+    }
+  }
+
+  function onCameraTransform(transform: { zoom: number; rotation: number }) {
+    if (!ws) return;
+    ws.send(`j:#${JSON.stringify(transform)}`);
+  }
+
   async function createPeerConnection(viewerSocketId: string) {
+    const localStream = camera.getVideoStream();
     if (!localStream) return;
     if (peerConnections[viewerSocketId]) {
       peerConnections[viewerSocketId].close();
     }
-    
+
     const pc = new RTCPeerConnection(ICE_CONFIG);
     peerConnections[viewerSocketId] = pc;
     candidateQueues[viewerSocketId] = []; // Initialize queue for this viewer
@@ -56,8 +65,9 @@
     for (const track of localStream.getTracks()) {
       pc.addTrack(track, localStream);
     }
-    
-    applyEncodingParams(currentQuality, pc);
+
+    const bandwidth = camera.getCurrentBandwidth();
+    setStreamBandwidth(pc, bandwidth.maxBitrate, bandwidth.maxFramerate);
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
@@ -71,11 +81,12 @@
       delete candidateQueues[viewerSocketId];
       pc.close();
     };
-    
+
     return pc;
   }
 
   async function createOffer(viewerId: string) {
+    const localStream = camera.getVideoStream();
     if (!localStream) return;
     const pc = await createPeerConnection(viewerId);
     if (!pc) return;
@@ -103,249 +114,182 @@
     ws?.send(`f:${viewerId}:#${JSON.stringify(pc.localDescription)}`);
   }
 
-  function stringToQuality(string: string): Quality {
-    if (string === "3") return "low";
-    if (string === "2") return "medium";
-    return "high";
+  async function init() {
+    const wsProtocol = page.url.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(`${wsProtocol}//${page.url.host}/ws?role=streamer`);
+    ws.onopen = async () => {
+      await camera.startCamera();
+    };
   }
 
-  async function applyQuality(quality: Quality) {
-    if (!QUALITY_PROFILES[quality]) return;
-    currentQuality = quality;
-    const q = QUALITY_PROFILES[quality];
-
-    if (localStream) {
-      const vTrack = localStream.getVideoTracks()[0];
-      if (vTrack) {
-        await vTrack
-          .applyConstraints({
-            width: { exact: q.width },
-            height: { exact: q.height },
-            frameRate: { exact: q.frameRate },
-          })
-          .catch(() => {});
-      }
-    }
-
-    for (const pc of Object.values(peerConnections)) {
-      applyEncodingParams(quality, pc);
-    }
-  }
-
-  function applyZoom(val: number) {
-    if (nativeZoomSupported && localStream) {
-      const track = localStream.getVideoTracks()[0];
-      track
-        .applyConstraints({
-          advanced: [{ zoom: val } as MediaTrackConstraintSet],
-        })
-        .catch(() => {
-          preview.style.transform = `scale(${val})`;
-          nativeZoomSupported = false;
-        });
-    } else {
-      preview.style.transform = `scale(${val})`;
-      nativeZoomSupported = false;
-    }
-
-    if (!nativeZoomSupported && localStream) {
-      const track = localStream.getVideoTracks()[0];
-      const settings = track.getSettings();
-      ws?.send(
-        `j:${JSON.stringify({
-          zoom: val,
-          rotate: (settings.width ?? 1920) < (settings.height ?? 1080),
-        })}`
-      );
-    }
-  }
-
-  let initialPinchDistance = $state(0);
-  let pinchStartZoom = $state(1);
-
-  // Manage DOM touch events safely
   $effect(() => {
-    if (!preview) return;
+    if (!ws) return;
+    ws.addEventListener("error", (err) =>
+      console.error("WebSocket Error:", err),
+    );
 
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        initialPinchDistance = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        pinchStartZoom = zoomValue;
+    ws.addEventListener("close", () => {
+      // window.location.reload();
+    });
+
+    ws.addEventListener("message", async (event) => {
+      let commandStr: string = event.data.toString();
+      const parts = commandStr.split(":");
+      const command = parts.shift();
+      const params = parts.join(":");
+
+      switch (command) {
+        case "e": // Viewer requests offer
+          await createOffer(params);
+          break;
+
+        case "h": {
+          // Received ICE candidate from Viewer
+          const candidateString = params.split(":");
+          const viewerId = candidateString.shift();
+          if (!viewerId) return;
+
+          const candidate = JSON.parse(candidateString.join(":").slice(1));
+          const pc = peerConnections[viewerId];
+
+          if (pc && candidate) {
+            // QUEUE LOGIC: Only add if remote description is set
+            if (pc.remoteDescription && pc.remoteDescription.type) {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            } else {
+              console.log(`Queueing ICE candidate for ${viewerId}`);
+              candidateQueues[viewerId].push(candidate);
+            }
+          }
+          break;
+        }
+
+        case "f": {
+          // Received Answer from Viewer
+          const candidateString = params.split(":");
+          const viewerId = candidateString.shift();
+          if (!viewerId) return;
+
+          const sdp = JSON.parse(candidateString.join(":").slice(1));
+          const pc = peerConnections[viewerId];
+          console.log(
+            `[SIGNALING] Got Answer. Looking for PC with ID: ${viewerId}. Did we find it?`,
+            !!pc,
+          );
+
+          if (pc && pc.signalingState !== "stable") {
+            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+
+            // QUEUE LOGIC: Flush the queue now that description is set
+            const queue = candidateQueues[viewerId] || [];
+            while (queue.length > 0) {
+              const queuedCandidate = queue.shift();
+              if (queuedCandidate) {
+                await pc.addIceCandidate(new RTCIceCandidate(queuedCandidate));
+              }
+            }
+          }
+          break;
+        }
+
+        case "i": {
+          // Apply quality change
+          await camera.applyQuality(stringToQuality(params.split(":")[1]));
+          break;
+        }
+
+        case "l": {
+          // Set session ID
+          // sessionId = parseInt(params);
+          break;
+        }
       }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 2) return;
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      const scale = dist / initialPinchDistance;
-      const newZoom = Math.max(minZoom, Math.min(maxZoom, pinchStartZoom * scale));
-      applyZoom(newZoom);
-    };
-
-    preview.addEventListener('touchstart', handleTouchStart, { passive: true });
-    preview.addEventListener('touchmove', handleTouchMove, { passive: true });
+    });
 
     return () => {
-      preview.removeEventListener('touchstart', handleTouchStart);
-      preview.removeEventListener('touchmove', handleTouchMove);
+      ws?.close();
+      for (const pc of Object.values(peerConnections)) {
+        pc.close();
+      }
+      peerConnections = {};
+      candidateQueues = {};
     };
   });
-
-  async function acquireWakeLock() {
-    try {
-      wakeLock = await navigator.wakeLock.request('screen');
-      wakeLock.addEventListener('release', () => {
-        document.addEventListener('visibilitychange', reacquireWakeLock, { once: true });
-      });
-    } catch { /* empty */ }
-  }
-
-  async function reacquireWakeLock() {
-    if (document.visibilityState === 'visible') {
-      await acquireWakeLock();
-    }
-  }
-
-  async function startCamera() {
-    try {
-      await acquireWakeLock();
-      const q = QUALITY_PROFILES[currentQuality];
-      localStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          aspectRatio: { exact: 16/9 },
-          facingMode: { ideal: facingMode },
-          width:     { exact: q.width },
-          height:    { exact: q.height },
-          frameRate: { exact: q.frameRate },
-        },
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        }
-      });
-
-      preview.srcObject = localStream;
-
-      const track = localStream.getVideoTracks()[0];
-      const caps = track.getCapabilities?.() || {};
-      
-      // @ts-expect-error chrome only feature
-      if (caps.zoom) {
-        nativeZoomSupported = true;
-        // @ts-expect-error chrome only feature
-        minZoom = caps.zoom.min;
-        // @ts-expect-error chrome only feature
-        maxZoom = caps.zoom.max;
-      }
-
-      // Ensure proper WebSocket protocol
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws?role=streamer`);
-
-      ws.addEventListener("error", (err) => console.error("WebSocket Error:", err));
-      
-      ws.addEventListener("close", () => {
-        // window.location.reload();
-      });
-
-      ws.addEventListener("message", async (event) => {
-        let commandStr: string = event.data.toString();
-        const parts = commandStr.split(":");
-        const command = parts.shift();
-        const params = parts.join(":");
-        
-        switch (command) {
-          case "e": // Viewer requests offer
-            await createOffer(params);
-            break;
-            
-          case "h": { // Received ICE candidate from Viewer
-            const candidateString = params.split(":");
-            const viewerId = candidateString.shift();
-            if (!viewerId) return;
-            
-            const candidate = JSON.parse(candidateString.join(":").slice(1));
-            const pc = peerConnections[viewerId];
-            
-            if (pc && candidate) {
-              // QUEUE LOGIC: Only add if remote description is set
-              if (pc.remoteDescription && pc.remoteDescription.type) {
-                await pc.addIceCandidate(new RTCIceCandidate(candidate));
-              } else {
-                console.log(`Queueing ICE candidate for ${viewerId}`);
-                candidateQueues[viewerId].push(candidate);
-              }
-            }
-            break;
-          }
-
-          case "f": { // Received Answer from Viewer
-            const candidateString = params.split(":");
-            const viewerId = candidateString.shift();
-            if (!viewerId) return;
-
-            const sdp = JSON.parse(candidateString.join(":").slice(1));
-            const pc = peerConnections[viewerId];
-            console.log(`[SIGNALING] Got Answer. Looking for PC with ID: ${viewerId}. Did we find it?`, !!pc);
-
-            if (pc && pc.signalingState !== "stable") {
-              await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-              
-              // QUEUE LOGIC: Flush the queue now that description is set
-              const queue = candidateQueues[viewerId] || [];
-              while (queue.length > 0) {
-                const queuedCandidate = queue.shift();
-                if (queuedCandidate) {
-                  await pc.addIceCandidate(new RTCIceCandidate(queuedCandidate));
-                }
-              }
-            }
-            break;
-          }
-          
-          case "i": // Apply quality change
-            await applyQuality(stringToQuality(params.split(":")[1]));
-            break;
-        }
-      });
-    } catch (err) {
-      console.error(err);
-      alert("Could not start camera");
-    }
-  }
 </script>
 
-<video id="preview" autoplay muted playsinline bind:this={preview}></video>
-<button id="start-btn" onclick={startCamera}>Start Camera</button>
+{#if !ws}
+  <button
+    id="start-btn"
+    class="clickable"
+    onclick={() => {
+      init();
+    }}>Start Camera</button
+  >
+{:else}
+  <div class="overlay">
+    <button
+      class="fullscreenBtn clickable"
+      onclick={toggleFullScreen}
+      aria-label="Tela Cheia"><div class="fullscreenIcon"></div></button
+    >
+    <div class="zoomSlider">
+      <input id="zoomPicker" class="clickable" type="range" min="0" max="100" />
+    </div>
+  </div>
+  <Camera
+    bind:this={camera}
+    onTransform={onCameraTransform}
+    {setStreamingBandwidth}
+  />
+{/if}
 
 <style>
-  * {
-    padding: 0;
-    margin: 0;
-    box-sizing: border-box;
-  }
-
-  video {
-    width: 100vw;
-    height: 100vh;
+  .overlay {
     position: absolute;
-    top: 0;
-    left: 0;
-    object-fit: cover; /* Added to prevent stretching */
+    width: 100%;
+    height: 100%;
+    padding: 1rem;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: start;
+    z-index: 999;
+    pointer-events: none;
   }
 
-  button {
-    position: fixed;
-    top: 20px;
-    left: 20px;
-    padding: 10px 20px;
-    z-index: 10;
+  .fullscreenBtn {
+    width: 3.5rem;
+    height: auto;
+    aspect-ratio: 1;
+    background: var(--background);
+    border-radius: 0.5rem;
+    border: 1px solid hsla(from var(--accent-color) h s l / 0.3);
+    padding: 0.25rem;
+    cursor: pointer;
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+  }
+
+  .fullscreenIcon {
+    width: 100%;
+    height: 100%;
+    background: var(--accent-color);
+    mask-image: url("/icons/fullscreenicon.svg");
+    mask-size: contain;
+  }
+
+  .zoomSlider {
+    position: absolute;
+    right: 1rem;
+    top: 1rem;
+  }
+
+  #zoomPicker {
+    writing-mode: sideways-lr;
+  }
+
+  .clickable {
+    pointer-events: all;
   }
 </style>
