@@ -142,7 +142,7 @@
     videoHeight = settings.height ?? 0;
   }
 
-  export async function startCamera() {
+  export async function start() {
     try {
       await preventScreenLock();
       const q = QUALITY_PROFILES[currentQuality];

@@ -3,6 +3,7 @@
   import type { Quality } from "$lib/interfaces/Quality";
   import { toggleFullScreen } from "$lib/utils/phoneUtils";
   import Camera from "./camera.svelte";
+  import Screen from "./screen.svelte";
 
   function stringToQuality(string: string): Quality {
     if (string === "3") return "low";
@@ -23,7 +24,8 @@
   let ws: WebSocket | null = $state(null);
   // let sessionId: number | null = $state(null);
   // svelte-ignore non_reactive_update
-  let camera: Camera;
+  let sourceMedia: Camera | Screen;
+  let isCamera = $state(true);
 
   function setStreamBandwidth(
     peerConnection: RTCPeerConnection,
@@ -52,7 +54,7 @@
   }
 
   async function createPeerConnection(viewerSocketId: string) {
-    const localStream = camera.getVideoStream();
+    const localStream = sourceMedia.getVideoStream();
     if (!localStream) return;
     if (peerConnections[viewerSocketId]) {
       peerConnections[viewerSocketId].close();
@@ -66,7 +68,7 @@
       pc.addTrack(track, localStream);
     }
 
-    const bandwidth = camera.getCurrentBandwidth();
+    const bandwidth = sourceMedia.getCurrentBandwidth();
     setStreamBandwidth(pc, bandwidth.maxBitrate, bandwidth.maxFramerate);
 
     pc.onicecandidate = ({ candidate }) => {
@@ -86,7 +88,7 @@
   }
 
   async function createOffer(viewerId: string) {
-    const localStream = camera.getVideoStream();
+    const localStream = sourceMedia.getVideoStream();
     if (!localStream) return;
     const pc = await createPeerConnection(viewerId);
     if (!pc) return;
@@ -118,7 +120,7 @@
     const wsProtocol = page.url.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(`${wsProtocol}//${page.url.host}/ws?role=streamer`);
     ws.onopen = async () => {
-      await camera.startCamera();
+      await sourceMedia.start();
     };
   }
 
@@ -194,7 +196,7 @@
 
         case "i": {
           // Apply quality change
-          await camera.applyQuality(stringToQuality(params.split(":")[1]));
+          await sourceMedia.applyQuality(stringToQuality(params.split(":")[1]));
           break;
         }
 
@@ -218,13 +220,30 @@
 </script>
 
 {#if !ws}
-  <button
-    id="start-btn"
-    class="clickable"
-    onclick={() => {
-      init();
-    }}>Start Camera</button
-  >
+  <div class="selectionScreen">
+    <button
+      id="start-btn"
+      class="selectionButton clickable"
+      onclick={() => {
+        isCamera = true;
+        init();
+      }}
+    >
+      <div class="buttonIcon camera"></div>
+      <span class="selectionTitle">Start Camera</span>
+    </button>
+    <button
+      id="start-btn"
+      class="selectionButton clickable"
+      onclick={() => {
+        isCamera = false;
+        init();
+      }}
+    >
+      <div class="buttonIcon screen"></div>
+      <span class="selectionTitle">Start Screen Share</span>
+    </button>
+  </div>
 {:else}
   <div class="overlay">
     <button
@@ -236,15 +255,76 @@
       }}
       aria-label="Tela Cheia"><div class="fullscreenIcon"></div></button
     >
+    <img class="branding" alt="Company Logo" src="/image/logo.png" />
   </div>
-  <Camera
-    bind:this={camera}
-    onTransform={onCameraTransform}
-    {setStreamingBandwidth}
-  />
+  {#if isCamera}
+    <Camera
+      bind:this={sourceMedia}
+      onTransform={onCameraTransform}
+      {setStreamingBandwidth}
+    />
+  {:else}
+    <Screen
+      bind:this={sourceMedia}
+      {setStreamingBandwidth}
+      onTransform={onCameraTransform}
+    />
+  {/if}
 {/if}
 
 <style>
+  .selectionScreen {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    grid-template-rows: 1fr;
+    width: 100%;
+    height: 100%;
+    justify-items: center;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+
+    @media screen and (orientation: portrait) {
+      grid-template-rows: 2fr 1fr;
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .selectionButton {
+    cursor: pointer;
+    border: 1px solid var(--accent-color);
+    background: hsla(from var(--accent-color) h s l / 0.3);
+    color: var(--accent-color);
+    font-size: 1.5rem;
+    padding: 1.5rem 0.75rem;
+    border-radius: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    height: 100%;
+  }
+
+  .buttonIcon {
+    height: 100%;
+    width: 100%;
+    background: var(--accent-color);
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center center;
+    &.camera {
+      mask-image: url("/icons/camera.svg");
+    }
+    &.screen {
+      mask-image: url("/icons/screenshare.svg");
+    }
+  }
+
+  .selectionTitle {
+    font-size: 1.5rem;
+    font-weight: bolder;
+  }
+
   .overlay {
     position: absolute;
     width: 100%;
@@ -254,7 +334,7 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: start;
-    z-index: 999;
+    z-index: 9999;
     pointer-events: none;
   }
 
@@ -262,9 +342,9 @@
     width: 3.5rem;
     height: auto;
     aspect-ratio: 1;
-    background: var(--background);
+    background: hsla(from var(--accent-color) h s l / 0.3);
     border-radius: 0.5rem;
-    border: 1px solid hsla(from var(--accent-color) h s l / 0.3);
+    border: 1px solid var(--accent-color);
     padding: 0.25rem;
     cursor: pointer;
     position: absolute;
@@ -285,5 +365,16 @@
 
   .clickable {
     pointer-events: all;
+  }
+
+  .branding {
+    pointer-events: none;
+    opacity: 0.35;
+    width: 45dvw;
+    height: 45dvh;
+    object-fit: contain;
+    position: absolute;
+    bottom: 2rem;
+    right: 2rem;
   }
 </style>

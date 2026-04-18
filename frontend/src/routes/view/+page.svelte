@@ -10,6 +10,7 @@
 
   let streamer = $derived(page.url.searchParams.get("streamer") || "");
   let preview: HTMLVideoElement;
+  let isMuted = $state(false);
 
   $effect(() => {
     const wsProtocol = page.url.protocol === "https:" ? "wss:" : "ws:";
@@ -120,24 +121,80 @@
       if (internalPc) internalPc.close();
     };
   });
+
+  function toggleMute() {
+    preview.muted = !preview.muted;
+    isMuted = preview.muted;
+  }
 </script>
 
-<video id="video" autoplay playsinline bind:this={preview}></video>
+<div class="watcher">
+  <div class="overlay">
+    <button class="muteButton" onclick={toggleMute} aria-label="mute">
+      <div class={`muteIcon ${isMuted ? "isMuted" : ""}`}></div>
+    </button>
+  </div>
+  <video id="video" autoplay playsinline bind:this={preview}></video>
+</div>
 
 <style>
-  * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+  .watcher {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    position: relative;
   }
 
-  video {
+  .overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 1rem;
+    z-index: 99;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: row;
+    gap: 1rem;
+    justify-content: space-between;
+    align-items: start;
+  }
+
+  .overlay:hover {
+    opacity: 1;
+  }
+
+  .muteButton {
+    width: 4rem;
+    height: 4rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--accent-color);
+    background: hsla(from var(--accent-color) h s l / 0.3);
+    padding: 0.25rem;
+  }
+
+  .muteIcon {
+    aspect-ratio: 1;
+    height: 100%;
+    width: auto;
+    background: var(--accent-color);
+    mask-size: contain;
+    mask-position: center;
+    mask-image: url("/icons/unmute.svg");
+    &.isMuted {
+      mask-image: url("/icons/mute.svg");
+    }
+  }
+
+  #video {
     width: 100vw;
     height: 100vh;
     position: absolute;
     top: 0;
     left: 0;
-    object-fit: cover;
+    object-fit: contain;
     background-color: #111;
   }
 </style>

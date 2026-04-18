@@ -1,6 +1,7 @@
 :root {
   --background: #191919;
   --accent-color: #54ff98;
+  --black: #000;
 }
 
 * {
@@ -10,8 +11,8 @@
 }
 
 body {
-  width: 100vw;
-  height: 100vh;
+  width: 100dvw;
+  height: 100dvh;
   overflow: hidden;
   background: var(--background);
   display: flex;
