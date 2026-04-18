@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+// Contains messages for the communication between the streamer clients and server.
+package streamer;
+
+import "common.proto";
+
+// Contains the different commands that the viewer or controller can send to the streamer.
+message ClientToServer {
+  // Contains the different commands that the viewer or controller can send to the streamer.
+  oneof command {
+    // Responds to the viewer or controller's request for an RTC offer.
+    RespondRtcOffer rtc_offer = 1;
+    // Requests the streamer to update the video transform applied to the stream.
+    RequestVideoTransform request_video_transform = 2;
+    // Viewer or controller is requesting to set their name.
+    common.SetName set_name = 3;
+    // Streamer is updating their battery level.
+    UpdateBatteryLevel update_battery_level = 4;
+    // The viewer or controller is sending an ICE candidate to the streamer to establish a WebRTC connection.
+    common.IceCandidate ice_candidate = 5;
+  }
+}
+
+// Contains the different commands that the server can send to the streamer.
+message ServerToClient {
+  // Contains the different commands that the server can send to the streamer.
+  oneof command {
+    // The viewer or controller is requesting an RTC offer from the streamer to establish a WebRTC connection.
+    CreateRtcOffer create_rtc_offer = 1;
+    // The viewer or controller is requesting to disconnect from the streamer.
+    DisconnectPeer disconnect_peer = 2;
+    // The streamer will send an ICE candidate to the viewer or controller to establish a WebRTC connection.
+    common.IceCandidate ice_candidate = 3;
+  }
+}
+
+// Requests the streamer to create an RTC offer for the viewer or controller to establish a WebRTC connection.
+message CreateRtcOffer {
+  // Who is requesting the RTC offer.
+  common.Session session = 1;
+}
+
+// Requests the streamer to disconnect the WebRTC connection with the viewer or controller.
+message DisconnectPeer {
+  // The session that needs to have disconnected from the streamer.
+  common.Session session = 1;
+}
+
+// Responds to the viewer or controller's request for an RTC offer.
+message RespondRtcOffer {
+  // The session that requested the RTC offer.
+  common.Session session = 1;
+  // The SDP of the RTC offer.
+  string sdp = 3;
+}
+
+// Requests all viewers and controllers to update the video transform applied to the stream.
+message RequestVideoTransform {
+  // The new video transform the streamer is requesting to apply to the stream.
+  common.VideoTransform video_transform = 1;
+}
+
+message UpdateBatteryLevel {
+  // The new battery level of the streamer's device as a percentage from 0 to 100.
+  uint32 battery_level = 1;
+}
