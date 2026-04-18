@@ -22,7 +22,9 @@ export async function preventScreenLock() {
 export function toggleFullScreen() {
   if (!document.fullscreenElement) {
     document.body.requestFullscreen();
+    return true;
   } else {
     document.exitFullscreen?.();
+    return false;
   }
 }

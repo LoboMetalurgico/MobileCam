@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Quality } from "$lib/interfaces/Quality";
   import { preventScreenLock } from "$lib/utils/phoneUtils";
+  import { onMount } from "svelte";
 
   const QUALITY_PROFILES = {
     high: { width: 1920, height: 1080, frameRate: 30, bitrate: 8_000_000 },
@@ -21,6 +22,9 @@
     zoom: 1,
     rotation: 0,
   });
+  let videoWidth = $state(0);
+  let videoHeight = $state(0);
+  let zoomSlider: HTMLInputElement;
 
   let localStream: MediaStream | undefined = $state();
 
@@ -39,6 +43,8 @@
 
   function applyZoom(val: number) {
     if (!localStream) return;
+    zoomValue = val;
+    updateZoomSlider();
     const track = localStream.getVideoTracks()[0];
 
     if (nativeZoomSupported) {
@@ -94,6 +100,7 @@
   }
 
   function handleTouchStart(e: TouchEvent) {
+    console.log(e.touches.length);
     if (e.touches.length === 2) {
       initialPinchDistance = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
@@ -117,6 +124,24 @@
     applyZoom(newZoom);
   }
 
+  export async function recalculateVideoDimensions(retryAttempt = 0) {
+    if (!localStream) return;
+    const settings = localStream.getVideoTracks()[0].getSettings();
+    const previousWidth = videoWidth;
+    const previousHeight = videoHeight;
+    if (
+      settings.width === previousWidth &&
+      settings.height === previousHeight
+    ) {
+      // check again in 100ms in case the settings haven't updated yet
+      if (retryAttempt < 5)
+        setTimeout(() => recalculateVideoDimensions(retryAttempt + 1), 100);
+      return;
+    }
+    videoWidth = settings.width ?? 0;
+    videoHeight = settings.height ?? 0;
+  }
+
   export async function startCamera() {
     try {
       await preventScreenLock();
@@ -138,6 +163,7 @@
 
       const track = localStream.getVideoTracks()[0];
       const caps = track.getCapabilities?.() || {};
+      const settings = track.getSettings();
 
       // @ts-expect-error chrome only feature
       if (caps.zoom) {
@@ -147,6 +173,17 @@
         // @ts-expect-error chrome only feature
         maxZoom = caps.zoom.max;
       }
+
+      applyZoom(1);
+
+      if (settings) {
+        videoWidth = settings.width ?? 0;
+        videoHeight = settings.height ?? 0;
+      }
+      screen.orientation.addEventListener("change", () =>
+        recalculateVideoDimensions(),
+      );
+      window.addEventListener("resize", () => recalculateVideoDimensions());
     } catch (err) {
       console.error(err);
       alert("Could not start camera");
@@ -156,32 +193,75 @@
   export function getVideoStream(): MediaStream | undefined {
     return localStream;
   }
+
+  function updateZoomSlider() {
+    zoomSlider.min = minZoom as unknown as string;
+    zoomSlider.max = maxZoom as unknown as string;
+    zoomSlider.value = zoomValue as unknown as string;
+    const ratio =
+      ((Number(zoomSlider.value) - Number(zoomSlider.min)) /
+        (Number(zoomSlider.max) - Number(zoomSlider.min))) *
+      100;
+    zoomSlider.style.background = `linear-gradient(0deg, var(--slider-bg-color) ${ratio}%, var(--deselected-bg-color) ${ratio}%)`;
+  }
+
+  onMount(() => {
+    zoomSlider.addEventListener("input", () => {
+      applyZoom(Number(zoomSlider.value));
+    });
+  });
 </script>
 
-<div class="videoPreview">
-  <div class="hoz-rulers"></div>
-  <div class="ver-rulers"></div>
-  <video
-    id="preview"
-    ontouchmove={handleTouchMove}
-    ontouchstart={handleTouchStart}
-    srcobject={localStream}
-    style={`transform: scale(${previewStyleTransform});`}
-    autoplay
-    muted
-    playsinline
-  ></video>
+<div class="CameraContent">
+  <div class="zoomSlider">
+    <input
+      type="range"
+      name="range"
+      value="0"
+      min="0"
+      max="100"
+      step="0.01"
+      id="inputRange"
+      class="inputRange clickable"
+      bind:this={zoomSlider}
+    />
+  </div>
+  <div
+    class="videoPreview"
+    style={`--width: ${videoWidth};--height: ${videoHeight};`}
+  >
+    <div class="hoz-rulers"></div>
+    <div class="ver-rulers"></div>
+    <video
+      id="preview"
+      ontouchmove={handleTouchMove}
+      ontouchstart={handleTouchStart}
+      srcobject={localStream}
+      style={`transform: rotate(${previewStyleTransform.rotation}) scale(${previewStyleTransform.zoom});`}
+      autoplay
+      muted
+      playsinline
+    ></video>
+  </div>
 </div>
 
 <style>
+  .CameraContent {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
   .videoPreview {
     width: 100vw;
-    max-width: calc(100dvh * (16 / 9) - 1rem);
-    aspect-ratio: 16/9;
+    max-width: calc(90dvh * (var(--width) / var(--height)) - 1rem);
+    aspect-ratio: calc(var(--width) / var(--height));
     height: auto;
     background: black;
     position: relative;
     pointer-events: none;
+    overflow: hidden;
   }
 
   #preview {
@@ -189,6 +269,9 @@
     height: 100%;
     object-fit: contain;
     pointer-events: all;
+    position: absolute;
+    top: 0;
+    left: 0;
   }
 
   .hoz-rulers,
@@ -222,5 +305,52 @@
       width: 100%;
       height: 1px;
     }
+  }
+
+  .zoomSlider {
+    position: absolute;
+    right: 0;
+    top: 0;
+    z-index: 999;
+    height: 100%;
+    padding: 1rem;
+  }
+
+  .inputRange {
+    --slider-bg-color: hsla(from var(--accent-color) h calc(s/3) l);
+    --deselected-bg-color: #444;
+
+    appearance: none;
+    width: 3rem;
+    height: 100%;
+    border: 1px solid #333333;
+    background: linear-gradient(
+      0deg,
+      var(--slider-bg-color) 0%,
+      var(--deselected-bg-color) 0%
+    );
+    writing-mode: vertical-rl;
+    direction: rtl;
+    cursor: pointer;
+  }
+
+  /* Thumb: for Chrome, Safari, Edge */
+  .inputRange::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 3rem;
+    height: 0.5rem;
+    background: var(--accent-color);
+    box-shadow: none;
+  }
+
+  /* Thumb: for Firefox */
+  .inputRange::-moz-range-thumb {
+    border: none;
+    border-radius: 0;
+    width: 3rem;
+    height: 0.5rem;
+    background: var(--accent-color);
+    box-shadow: none;
   }
 </style>

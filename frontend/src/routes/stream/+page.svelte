@@ -229,12 +229,13 @@
   <div class="overlay">
     <button
       class="fullscreenBtn clickable"
-      onclick={toggleFullScreen}
+      onclick={(e) => {
+        const state = toggleFullScreen();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (e.target as any).classList.toggle("isFullscreen", state);
+      }}
       aria-label="Tela Cheia"><div class="fullscreenIcon"></div></button
     >
-    <div class="zoomSlider">
-      <input id="zoomPicker" class="clickable" type="range" min="0" max="100" />
-    </div>
   </div>
   <Camera
     bind:this={camera}
@@ -278,15 +279,8 @@
     mask-image: url("/icons/fullscreenicon.svg");
     mask-size: contain;
   }
-
-  .zoomSlider {
-    position: absolute;
-    right: 1rem;
-    top: 1rem;
-  }
-
-  #zoomPicker {
-    writing-mode: sideways-lr;
+  .fullscreenIcon:global(.isFullscreen) {
+    mask-image: url("/icons/fullscreenexit.svg");
   }
 
   .clickable {
