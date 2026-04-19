@@ -61,6 +61,7 @@ message RequestVideoTransform {
   common.VideoTransform video_transform = 1;
 }
 
+// Sent by the streamer to the controller when the streamer updates its battery level.
 message UpdateBatteryLevel {
   // The new battery level of the streamer's device as a percentage from 0 to 100.
   uint32 battery_level = 1;
