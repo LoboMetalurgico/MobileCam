@@ -50,6 +50,16 @@ message ServerToClient {
     common.IceCandidate ice_candidate = 4;
     // The streamer will send an update to the controller when the streamer updates its zoom level.
     UpdateZoom update_zoom = 5;
+    // The server will send the list of streamers connected to the server.
+    ListStreamersResponse list_streamers_response = 6;
+    // The server will send the list of viewers connected to the server in response to the controller's request.
+    ListViewersResponse list_viewers_response = 7;
+    // The server will send a notification to the controller when a new session, either a streamer or viewer, has connected to the server, when a session has disconnected from the server, or when a viewer has changed which streamer they are watching.
+    NewSession new_session = 8;
+    // The server will send a notification to the controller when a session, either a streamer or viewer, has disconnected from the server.
+    DropSession drop_session = 9;
+    // The server will send a notification to the controller when a viewer has changed which streamer they are watching.
+    ChangedWatching changed_watching = 10;
   }
 }
 
