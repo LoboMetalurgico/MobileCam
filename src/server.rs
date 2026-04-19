@@ -4,42 +4,22 @@ use actix_web::web::Data;
 use actix_ws::Session;
 use bytestring::ByteString;
 
-use crate::{AppState, commands::b_command};
+use crate::{
+  AppState,
+  app_state::{Role, SessionId},
+  commands::b_command,
+};
 
-#[derive(Debug, Clone, PartialEq, Copy, Eq)]
-pub enum Roles {
-  Streamer,
-  Viewer(u8),
-  Controller,
-}
-
-impl Roles {
-  pub fn is_viewer(&self) -> bool {
-    matches!(self, Roles::Viewer(_))
-  }
-  pub fn is_controller(&self) -> bool {
-    matches!(self, Roles::Controller)
-  }
-  pub fn is_streamer(&self) -> bool {
-    matches!(self, Roles::Streamer)
-  }
-}
-
-#[derive(Clone)]
-pub struct UserData {
-  pub session: Session,
-  pub role: Roles,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Quality {
+  #[default]
   High = 1,
   Medium = 2,
   Low = 3,
 }
 
-impl TryFrom<u8> for Quality {
-  fn try_from(value: u8) -> Result<Self, Self::Error> {
+impl TryFrom<usize> for Quality {
+  fn try_from(value: usize) -> Result<Self, Self::Error> {
     match value {
       1 => Ok(Self::High),
       2 => Ok(Self::Medium),
@@ -51,15 +31,15 @@ impl TryFrom<u8> for Quality {
   type Error = ();
 }
 
-impl From<Quality> for u8 {
+impl From<Quality> for usize {
   fn from(value: Quality) -> Self {
-    value as u8
+    value as usize
   }
 }
 
 impl From<Quality> for String {
   fn from(value: Quality) -> Self {
-    u8::from(value).to_string()
+    usize::from(value).to_string()
   }
 }
 
@@ -72,7 +52,7 @@ impl fmt::Display for Quality {
 impl FromStr for Quality {
   fn from_str(s: &str) -> Result<Self, Self::Err> {
     Self::try_from(
-      u8::from_str(s)
+      usize::from_str(s)
         .inspect_err(|e| tracing::debug!("Failed to parse quality: {e}"))
         .map_err(|_| ())?,
     )
@@ -84,7 +64,7 @@ impl FromStr for Quality {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JSONBody {
   pub body: String,
-  pub id: u8,
+  pub id: usize,
 }
 
 impl From<&JSONBody> for String {
@@ -113,7 +93,7 @@ impl FromStr for JSONBody {
       .inspect_err(|_| tracing::debug!("Can't get the JSON body"))?;
     Ok(Self {
       body: json_body.to_string(),
-      id: u8::from_str(id)
+      id: usize::from_str(id)
         .inspect_err(|e| tracing::debug!("Failed to parse session ID: {e}"))
         .map_err(|_| ())?,
     })
@@ -126,16 +106,16 @@ impl FromStr for JSONBody {
 pub enum Commands {
   A,
   B,
-  C { id: Vec<u8> },
+  C { id: Vec<usize> },
   D,
-  E { id: u8 },
+  E { id: usize },
   F(JSONBody),
   G(JSONBody),
   H(JSONBody),
-  I { id: u8, quality: Quality },
+  I { id: usize, quality: Quality },
   J { body: String },
-  K { id: u8 },
-  L { id: u8 },
+  K { id: usize },
+  L { id: usize },
 }
 
 impl From<&Commands> for String {
@@ -186,7 +166,7 @@ impl FromStr for Commands {
       'd' => Ok(Self::D),
 
       'e' | 'k' | 'l' => {
-        let id = u8::from_str(&rest)
+        let id = usize::from_str(&rest)
           .inspect_err(|e| tracing::debug!("Failed to parse session ID: {e}"))
           .map_err(|_| ())?;
         if cmd == 'e' {
@@ -209,10 +189,10 @@ impl FromStr for Commands {
         let id_part = parts.next().ok_or(())?;
         let quality_part = parts.next().ok_or(())?;
 
-        let id = u8::from_str(id_part)
+        let id = usize::from_str(id_part)
           .inspect_err(|e| tracing::debug!("Failed to parse session ID: {e}"))
           .map_err(|_| ())?;
-        let quality = Quality::from_str(quality_part).map_err(|_| ())?;
+        let quality = Quality::from_str(quality_part)?;
 
         Ok(Self::I { id, quality })
       }
@@ -226,7 +206,7 @@ impl FromStr for Commands {
           .strip_prefix('%')
           .ok_or(())?
           .split(',')
-          .map(u8::from_str)
+          .map(usize::from_str)
           .collect::<Result<Vec<_>, _>>()
           .map_err(|_| ())?;
 
@@ -242,8 +222,8 @@ impl FromStr for Commands {
 
 pub async fn message_handler(
   app_state: Data<AppState>,
-  (session_id, session): (u8, &Session),
-  role: Roles,
+  session_id: SessionId,
+  session: &mut Session,
   content: ByteString,
 ) {
   tracing::trace!("Handling message: {content:?}");
@@ -258,23 +238,27 @@ pub async fn message_handler(
     }
 
     Commands::D => {
-      if let Roles::Viewer(id) = role
-        && let Some(mut connection) = app_state.get_connection(id)
+      if let Some(viewer_index) = session_id.as_viewer()
+        && let Some(streamer_session) = app_state.get_streamer_session_from_viewer(viewer_index)
       {
-        let _ = connection
-          .text(Commands::E { id: session_id }.to_string())
-          .await;
+        if let Some(mut streamer_session) = streamer_session {
+          let _ = streamer_session
+            .text(Commands::E { id: viewer_index }.to_string())
+            .await;
+        } else {
+          tracing::warn!("Viewer asked for streamer but is not watching anyone");
+        }
       } else {
-        tracing::warn!("Non-viewer asked for streamer");
+        tracing::warn!("Non-viewer or an invalid viewer asked for streamer");
       }
     }
     Commands::F(data) => {
-      if let Some(mut connection) = app_state.get_connection(data.id) {
-        let _ = connection
+      if let Some(mut remote_session) = app_state.get_session((Role::Viewer, data.id).into()) {
+        let _ = remote_session
           .text(
             Commands::F(JSONBody {
               body: data.body,
-              id: session_id,
+              id: *session_id,
             })
             .to_string(),
           )
@@ -285,12 +269,12 @@ pub async fn message_handler(
     }
 
     Commands::G(data) => {
-      if let Some(mut connection) = app_state.get_connection(data.id) {
-        let _ = connection
+      if let Some(mut remote_session) = app_state.get_session((Role::Viewer, data.id).into()) {
+        let _ = remote_session
           .text(
             Commands::G(JSONBody {
               body: data.body,
-              id: session_id,
+              id: *session_id,
             })
             .to_string(),
           )
@@ -301,12 +285,12 @@ pub async fn message_handler(
     }
 
     Commands::H(data) => {
-      if let Some(mut connection) = app_state.get_connection(data.id) {
-        let _ = connection
+      if let Some(mut remote_session) = app_state.get_session((Role::Streamer, data.id).into()) {
+        let _ = remote_session
           .text(
             Commands::H(JSONBody {
               body: data.body,
-              id: session_id,
+              id: *session_id,
             })
             .to_string(),
           )
@@ -317,20 +301,18 @@ pub async fn message_handler(
     }
 
     Commands::I { id, quality } => {
-      if let Some(mut connection) = app_state.get_connection(id) {
-        let _ = connection
+      if let Some(mut remote_session) = app_state.get_session((Role::Streamer, id).into()) {
+        let _ = remote_session
           .text(Commands::I { id, quality }.to_string())
           .await; // sends I as is to Streamer
       } else {
-        tracing::warn!("Controller sent quality request to a non-existent connection");
+        tracing::warn!("Controller tried to send quality request to a non-existent connection");
       }
     }
 
     Commands::J { body } => {
-      let connection =
-        app_state.get_conns(|data| data.role.is_viewer() || data.role.is_controller());
-      for mut conn in connection {
-        let _ = conn
+      for mut remote_session in app_state.get_all_controllers_and_viewers_sessions() {
+        let _ = remote_session
           .text(Commands::J { body: body.clone() }.to_string())
           .await; // Broadcast J for everyone except streamers
       }

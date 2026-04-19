@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use actix_web::{
   Error, HttpRequest, HttpResponse, get, rt,
@@ -12,8 +12,8 @@ use tracing::Instrument;
 
 use crate::{
   CONN_TIMEOUT, MSG_TIMEOUT,
-  app_state::AppState,
-  server::{Commands, Roles, message_handler},
+  app_state::{AppState, Role, SessionId},
+  server::{Commands, message_handler},
 };
 
 async fn timeout(session: Session) {
@@ -28,25 +28,23 @@ async fn timeout(session: Session) {
     .await;
 }
 
+#[derive(Debug, Deserialize)]
+struct WebSocketQuery {
+  role: Option<String>,
+}
+
 async fn handle_message(
-  message: AggregatedMessage,
   app_state: Data<AppState>,
-  session_id: u8,
-  session: &Session,
-  role: Roles,
+  session_id: SessionId,
+  session: &mut Session,
+  message: AggregatedMessage,
 ) -> Option<Option<CloseReason>> {
-  tracing::trace!("Received message: {message:?}");
   let content = match message {
     AggregatedMessage::Close(reason) => {
-      tracing::info!("Connection closed with reason: {reason:?}");
-
-      if role.is_streamer() {
-        tracing::debug!(
-          "Notifying viewers and controllers about streamer disconnection for session {session_id}"
-        );
-        let consumers = app_state.get_conns(|u| u.role.is_viewer() || u.role.is_controller());
-        for mut conn in consumers {
-          let _ = conn.text(Commands::K { id: session_id }.to_string()).await;
+      if session_id == Role::Streamer {
+        tracing::debug!("Notifying viewers and controllers about streamer disconnection");
+        for mut conn in app_state.get_all_controllers_and_viewers_sessions() {
+          let _ = conn.text(Commands::K { id: *session_id }.to_string()).await;
         }
       }
 
@@ -58,7 +56,7 @@ async fn handle_message(
     {
       Ok(v) => v,
       Err(e) => {
-        tracing::warn!("Unexpected binary message from session {session_id}: {e}");
+        tracing::warn!("Unexpected binary message: {e}");
         return None;
       }
     },
@@ -68,15 +66,9 @@ async fn handle_message(
     _ => return None,
   };
 
-  message_handler(app_state, (session_id, session), role, content).await;
+  message_handler(app_state, session_id, session, content).await;
 
   None
-}
-
-#[derive(Debug, Deserialize)]
-struct WebSocketQuery {
-  role: Option<String>,
-  watch_id: Option<u8>,
 }
 
 #[get("/ws")]
@@ -87,73 +79,43 @@ async fn incoming_socket(
   app_state: Data<AppState>,
   query: web::Query<WebSocketQuery>,
 ) -> Result<HttpResponse, Error> {
-  let role = match query.role.as_deref() {
-    Some("streamer") => Roles::Streamer,
-    Some("viewer") => {
-      let Some(viewing_id) = query.watch_id else {
-        tracing::warn!("Viewer role requires watch_id query parameter set");
-        return Ok(
-          HttpResponse::BadRequest().body("watch_id value isn't provided for viewer role!"),
-        );
-      };
-      Roles::Viewer(viewing_id)
-    }
-    Some("controller") => Roles::Controller,
-    _ => {
-      tracing::warn!("Invalid or missing role query parameter in request");
-      return Ok(
-        HttpResponse::BadRequest().body("Missing or invalid role query parameter in request!"),
-      );
-    }
-  };
-
-  let Some(session_id) = app_state.recycle() else {
-    tracing::warn!("No available session IDs to assign for new connection, rejecting connection");
-    return Ok(HttpResponse::InsufficientStorage().body("Too many sockets already connected!"));
+  let Some(role) = query.role.as_deref().and_then(|s| Role::from_str(s).ok()) else {
+    tracing::warn!("WebSocket connection requires a valid role query parameter!");
+    return Ok(
+      HttpResponse::BadRequest().body("Missing or invalid role query parameter in request!"),
+    );
   };
 
   let (res, mut session, message_stream) = actix_ws::handle(&req, stream)?;
 
-  app_state.register(session_id, session.clone(), role);
+  let session_id = app_state.insert(role, session.clone());
+
+  tracing::info!("New session: {session_id}");
 
   match role {
-    Roles::Streamer => {
-      tracing::info!("Streamer connected with session ID {session_id}");
-
+    Role::Streamer => {
       let _ = session
-        .text(Commands::L { id: session_id }.to_string())
+        .text(Commands::L { id: *session_id }.to_string())
         .await; // sends L as is to Streamer, letting them know their session ID
 
-      for mut init_session in app_state
-        .get_conns(|user_data| user_data.role.is_controller() || user_data.role.is_viewer())
-      {
+      for mut init_session in app_state.get_all_controllers_and_viewers_sessions() {
         let _ = init_session.text("a").await;
       }
     }
-    Roles::Viewer(data) => {
-      tracing::info!("Viewer connected with session ID {session_id}, watching {data}");
-
-      if let Some(mut conn) = app_state.get_connection(data) {
-        let _ = conn.text(format!("e:{session_id}")).await;
-      }
-    }
-    Roles::Controller => {
-      tracing::info!("Controller connected with session ID {session_id}");
-    }
-  }
+    _ => {}
+  };
 
   rt::spawn(async move {
     let mut message_stream = message_stream.aggregate_continuations();
     let mut timeout_task = rt::spawn(timeout(session.clone()).instrument(tracing::Span::current()));
 
     let close_reason = loop {
-      let  message_timeout = sleep(Duration::from_secs(MSG_TIMEOUT));
+      let message_timeout = sleep(Duration::from_secs(MSG_TIMEOUT));
 
       tokio::select! {
         Some(Ok(message)) =  message_stream.recv() => {
           timeout_task.abort();
-          if let Some(v) = handle_message(message, app_state.clone(), session_id, &session, role).await {
-            tracing::debug!("Closing connection with reason: {v:?}");
+          if let Some(v) = handle_message(app_state.clone(), session_id, &mut session, message).await {
             break v;
           } else {
             tracing::trace!("Creating new timeout task");
@@ -175,10 +137,11 @@ async fn incoming_socket(
       }
     };
 
+    let log_close_reason = close_reason.as_ref().map(|v| v.code);
     let _ = session.close(close_reason).await;
-    app_state.discard(session_id);
-    tracing::info!("Session disconnected and cleaned up");
-  }.instrument(tracing::info_span!(parent: None, "websocket_handler", session_id = session_id, role = ?role)));
+    app_state.remove_session(session_id);
+    tracing::info!("Session closed with reason: {log_close_reason:?}");
+  }.instrument(tracing::info_span!(parent: None, "websocket_handler", session_id = *session_id)));
 
   Ok(res)
 }

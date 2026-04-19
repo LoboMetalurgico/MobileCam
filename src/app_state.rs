@@ -1,75 +1,180 @@
-use std::{
-  hash::BuildHasherDefault,
-  sync::atomic::{AtomicU8, Ordering},
-};
+//! Application state management for the MobileCam server, including data structures for viewers, streamers, and controllers.
 
 use actix_ws::Session;
-use dashmap::DashMap;
-use fxhash::FxHasher32;
-use parking_lot::Mutex;
 
-use crate::server::{Roles, UserData};
+use crate::sparse_set::SyncSparseSet;
 
+/// Viewer data structure, containing the session ID and an optional field for the streamer they are watching.
+pub struct ViewerData {
+  /// The session associated with the viewer.
+  pub session: Session,
+  /// An optional field indicating the streamer that the viewer is currently watching.
+  pub watching: Option<usize>,
+}
+
+/// Streamer data structure, containing the session ID.
+pub struct StreamerData {
+  /// The session associated with the streamer.
+  pub session: Session,
+}
+
+/// Controller data structure, containing the session ID.
+pub struct ControllerData {
+  /// The session associated with the controller.
+  pub session: Session,
+}
+
+/// Represents the role of a client in the MobileCam system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, derive_more::FromStr)]
+#[from_str(error(InvalidRoleError))]
+pub enum Role {
+  /// The viewer role, representing clients that watch the stream.
+  Viewer,
+  /// The streamer role, representing clients that broadcast the stream.
+  Streamer,
+  /// The controller role, representing clients that can control the stream.
+  Controller,
+}
+
+/// Custom error type for invalid role errors.
+#[derive(Debug, Clone, derive_more::Display, derive_more::Error, derive_more::From)]
+#[from(derive_more::FromStrError)]
+#[display("Invalid role provided")]
+pub struct InvalidRoleError;
+
+/// A mixed index structure that combines a session index with a role-specific index for efficient access to session data.
+#[derive(
+  Debug,
+  Clone,
+  Copy,
+  PartialEq,
+  Eq,
+  derive_more::From,
+  derive_more::Into,
+  derive_more::Deref,
+  derive_more::Display,
+)]
+#[into]
+#[display("{_0:?}({_1})")]
+pub struct SessionId(
+  #[into] Role,
+  #[into]
+  #[deref]
+  usize,
+);
+
+impl SessionId {
+  /// Retrieves the index if the session is a viewer, returning `None` if the session is not.
+  pub fn as_viewer(self) -> Option<usize> {
+    if self.0 == Role::Viewer {
+      Some(self.1)
+    } else {
+      None
+    }
+  }
+}
+
+impl AsRef<Role> for SessionId {
+  fn as_ref(&self) -> &Role {
+    &self.0
+  }
+}
+
+impl AsRef<usize> for SessionId {
+  fn as_ref(&self) -> &usize {
+    &self.1
+  }
+}
+
+impl PartialEq<Role> for SessionId {
+  fn eq(&self, other: &Role) -> bool {
+    self.0 == *other
+  }
+}
+
+impl PartialEq<usize> for SessionId {
+  fn eq(&self, other: &usize) -> bool {
+    self.1 == *other
+  }
+}
+
+/// The main application state, containing sparse sets for sessions, streamers, controllers, and viewers.
 pub struct AppState {
-  trash_bin: Mutex<Vec<u8>>,
-  connections: DashMap<u8, UserData, BuildHasherDefault<FxHasher32>>,
-  last_session: AtomicU8,
+  /// A sparse set for managing streamer data.
+  streamers: SyncSparseSet<StreamerData>,
+  /// A sparse set for managing controller data.
+  controllers: SyncSparseSet<ControllerData>,
+  /// A sparse set for managing viewer data.
+  viewers: SyncSparseSet<ViewerData>,
 }
 
 impl AppState {
   pub fn new() -> Self {
     Self {
-      last_session: AtomicU8::new(0),
-      trash_bin: Mutex::new(Vec::with_capacity(1)),
-      connections: DashMap::with_capacity_and_hasher(1, BuildHasherDefault::new()),
+      streamers: SyncSparseSet::with_capacity(1),
+      controllers: SyncSparseSet::with_capacity(1),
+      viewers: SyncSparseSet::with_capacity(1),
     }
   }
 
-  pub fn discard(&self, id: u8) {
-    tracing::debug!("Discarding session with ID {id}");
-    self.trash_bin.lock().push(id);
-    self.connections.remove(&id);
+  pub fn insert(&self, role: Role, session: Session) -> SessionId {
+    (
+      role,
+      match role {
+        Role::Streamer => self.streamers.insert(StreamerData { session }),
+        Role::Controller => self.controllers.insert(ControllerData { session }),
+        Role::Viewer => self.viewers.insert(ViewerData {
+          session,
+          watching: None,
+        }),
+      },
+    )
+      .into()
   }
 
-  pub fn recycle(&self) -> Option<u8> {
-    tracing::debug!("Attempting to get a recycled session ID");
-    self.trash_bin.lock().pop().or_else(|| {
-      self
-        .last_session
-        .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |old_value| {
-          old_value.checked_add(1)
-        })
-        .ok()
-    })
-  }
-
-  pub fn register(&self, id: u8, session: Session, role: Roles) {
-    tracing::debug!("Registering new session with ID {id} and role {role:?}");
-    self.connections.insert(id, UserData { session, role });
-  }
-
-  pub fn get_connection(&self, id: u8) -> Option<Session> {
-    self.connections.get(&id).map(|item| item.session.clone())
-  }
-
-  pub fn get_conns<F: Fn(&UserData) -> bool>(&self, filter: F) -> Vec<Session> {
-    let mut conns = Vec::new();
-    for conn in self.connections.iter() {
-      if filter(conn.value()) {
-        conns.push(conn.value().session.clone());
-      }
+  /// Removes a session from the appropriate sparse set based on its role.
+  pub fn remove_session(&self, session_id: SessionId) -> Option<Session> {
+    match Role::from(session_id) {
+      Role::Streamer => self.streamers.remove(*session_id).map(|data| data.session),
+      Role::Controller => self
+        .controllers
+        .remove(*session_id)
+        .map(|data| data.session),
+      Role::Viewer => self.viewers.remove(*session_id).map(|data| data.session),
     }
-    conns
   }
 
-  pub fn get_ids<F: Fn(&UserData) -> bool>(&self, filter: F) -> Vec<u8> {
-    let mut parts = Vec::new();
-    for u_data in self.connections.iter() {
-      if filter(u_data.value()) {
-        parts.push(*u_data.key());
-      }
+  /// Retrieves a session from the appropriate sparse set based on its role.
+  pub fn get_session(&self, session_id: SessionId) -> Option<Session> {
+    match Role::from(session_id) {
+      Role::Streamer => self.streamers.view(*session_id, |v| v.session.clone()),
+      Role::Controller => self.controllers.view(*session_id, |v| v.session.clone()),
+      Role::Viewer => self.viewers.view(*session_id, |v| v.session.clone()),
     }
+  }
 
-    parts
+  /// Retrieves the streamer that a viewer is currently watching, if any.
+  ///
+  /// The first `Option` indicates if there is a valid viewer index, while the second `Option` indicates if the viewer is watching a valid streamer.
+  pub fn get_streamer_session_from_viewer(&self, viewer_index: usize) -> Option<Option<Session>> {
+    self
+      .viewers
+      .view(viewer_index, |v| v.watching)
+      .map(|streamer_index| {
+        streamer_index.and_then(|i| self.streamers.view(i, |s| s.session.clone()))
+      })
+  }
+
+  /// Retrieves all sessions for both controllers and viewers.
+  pub fn get_all_controllers_and_viewers_sessions(&self) -> impl Iterator<Item = Session> {
+    self
+      .controllers
+      .map(|(_, v)| v.session.clone())
+      .into_iter()
+      .chain(self.viewers.map(|(_, v)| v.session.clone()))
+  }
+
+  pub fn get_all_streamers_id(&self) -> Vec<usize> {
+    self.streamers.map(|(i, _)| i)
   }
 }
