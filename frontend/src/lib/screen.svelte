@@ -23,7 +23,7 @@
       zoom: number;
       rotation: number;
     }) => void;
-    setStreamingBandwidth: (maxBitrate: number, maxFramerate: number) => void;
+    setStreamingBandwidth: (maxBitrate: number, maxFramerate: number) => Promise<void>;
   }
 
   let props: Props = $props();
@@ -54,7 +54,7 @@
       }
     }
 
-    props.setStreamingBandwidth(q.bitrate, q.frameRate);
+    await props.setStreamingBandwidth(q.bitrate, q.frameRate);
   }
 
   export async function recalculateVideoDimensions(retryAttempt = 0) {

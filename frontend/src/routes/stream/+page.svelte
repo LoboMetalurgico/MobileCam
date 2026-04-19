@@ -1,9 +1,13 @@
 <script lang="ts">
   import { page } from "$app/state";
   import type { Quality } from "$lib/interfaces/Quality";
+  import { Role } from "$lib/interfaces/Role";
   import { toggleFullScreen } from "$lib/utils/phoneUtils";
-  import Camera from "./camera.svelte";
-  import Screen from "./screen.svelte";
+  import { WRTCManager } from "$lib/WebRTCManager";
+  import { WebsocketManager } from "$lib/websocketManager";
+  import { onDestroy } from "svelte";
+  import Camera from "../../lib/camera.svelte";
+  import Screen from "../../lib/screen.svelte";
 
   function stringToQuality(string: string): Quality {
     if (string === "3") return "low";
@@ -11,87 +15,36 @@
     return "high";
   }
 
-  const ICE_CONFIG = {
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-    ],
-  };
-
-  // Hoisted state
-  let peerConnections: Record<string, RTCPeerConnection> = {};
-  let candidateQueues: Record<string, RTCIceCandidateInit[]> = {}; // Queue for the race condition
-  let ws: WebSocket | null = $state(null);
-  // let sessionId: number | null = $state(null);
   // svelte-ignore non_reactive_update
   let sourceMedia: Camera | Screen;
   let isCamera = $state(true);
+  let isSocketOpen = $state(false);
+  const socket = new WebsocketManager(Role.Streamer, commandHandler);
+  const rtcManager = new WRTCManager({
+    onICECandidate(connectionId, candidate) {
+      socket.send(`g:${connectionId}:#${JSON.stringify(candidate)}`);
+    },
+  });
 
-  function setStreamBandwidth(
-    peerConnection: RTCPeerConnection,
-    maxBitrate: number,
-    maxFramerate: number,
-  ) {
-    for (const sender of peerConnection.getSenders()) {
-      if (sender.track?.kind !== "video") continue;
-      const params = sender.getParameters();
-      if (!params.encodings?.length) params.encodings = [{}];
-      params.encodings[0].maxBitrate = maxBitrate;
-      params.encodings[0].maxFramerate = maxFramerate;
-      sender.setParameters(params).catch(() => {});
-    }
-  }
-
-  function setStreamingBandwidth(maxBitrate: number, maxFramerate: number) {
-    for (const pc of Object.values(peerConnections)) {
-      setStreamBandwidth(pc, maxBitrate, maxFramerate);
+  async function setStreamingBandwidth(maxBitrate: number, maxFramerate: number) {
+    for await (const pc of Object.values(rtcManager.getConnections())) {
+      await rtcManager.setStreamBandwidth(pc, maxBitrate, maxFramerate);
     }
   }
 
   function onCameraTransform(transform: { zoom: number; rotation: number }) {
-    if (!ws) return;
-    ws.send(`j:#${JSON.stringify(transform)}`);
-  }
-
-  async function createPeerConnection(viewerSocketId: string) {
-    const localStream = sourceMedia.getVideoStream();
-    if (!localStream) return;
-    if (peerConnections[viewerSocketId]) {
-      peerConnections[viewerSocketId].close();
-    }
-
-    const pc = new RTCPeerConnection(ICE_CONFIG);
-    peerConnections[viewerSocketId] = pc;
-    candidateQueues[viewerSocketId] = []; // Initialize queue for this viewer
-
-    for (const track of localStream.getTracks()) {
-      pc.addTrack(track, localStream);
-    }
-
-    const bandwidth = sourceMedia.getCurrentBandwidth();
-    setStreamBandwidth(pc, bandwidth.maxBitrate, bandwidth.maxFramerate);
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        ws?.send(`g:${viewerSocketId}:#${JSON.stringify(candidate)}`);
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState !== "failed") return;
-      delete peerConnections[viewerSocketId];
-      delete candidateQueues[viewerSocketId];
-      pc.close();
-    };
-
-    return pc;
+    socket.send(`j:#${JSON.stringify(transform)}`);
   }
 
   async function createOffer(viewerId: string) {
     const localStream = sourceMedia.getVideoStream();
     if (!localStream) return;
-    const pc = await createPeerConnection(viewerId);
+    const pc = rtcManager.createPeerConnection(viewerId);
     if (!pc) return;
+
+    for (const track of localStream.getTracks()) {
+      pc.addTrack(track, localStream);
+    }
 
     const transceivers = pc.getTransceivers();
     const videoTransceiver = transceivers.find(
@@ -111,120 +64,74 @@
       }
     }
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    ws?.send(`f:${viewerId}:#${JSON.stringify(pc.localDescription)}`);
+    const offer = await rtcManager.createStreamOffer(viewerId);
+    socket.send(`f:${viewerId}:#${JSON.stringify(offer)}`);
   }
 
   async function init() {
-    const wsProtocol = page.url.protocol === "https:" ? "wss:" : "ws:";
-    ws = new WebSocket(`${wsProtocol}//${page.url.host}/ws?role=streamer`);
-    ws.onopen = async () => {
-      await sourceMedia.start();
-    };
+    await socket.connect({
+      protocol: page.url.protocol,
+      hostname: page.url.host,
+    });
+    await sourceMedia.start();
   }
 
-  $effect(() => {
-    if (!ws) return;
-    ws.addEventListener("error", (err) =>
-      console.error("WebSocket Error:", err),
-    );
-
-    ws.addEventListener("close", () => {
-      // window.location.reload();
-    });
-
-    ws.addEventListener("message", async (event) => {
-      let commandStr: string = event.data.toString();
-      const parts = commandStr.split(":");
-      const command = parts.shift();
-      const params = parts.join(":");
-
-      switch (command) {
-        case "e": // Viewer requests offer
-          await createOffer(params);
-          break;
-
-        case "h": {
-          // Received ICE candidate from Viewer
-          const candidateString = params.split(":");
-          const viewerId = candidateString.shift();
-          if (!viewerId) return;
-
-          const candidate = JSON.parse(candidateString.join(":").slice(1));
-          const pc = peerConnections[viewerId];
-
-          if (pc && candidate) {
-            // QUEUE LOGIC: Only add if remote description is set
-            if (pc.remoteDescription && pc.remoteDescription.type) {
-              await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            } else {
-              console.log(`Queueing ICE candidate for ${viewerId}`);
-              candidateQueues[viewerId].push(candidate);
-            }
-          }
-          break;
-        }
-
-        case "f": {
-          // Received Answer from Viewer
-          const candidateString = params.split(":");
-          const viewerId = candidateString.shift();
-          if (!viewerId) return;
-
-          const sdp = JSON.parse(candidateString.join(":").slice(1));
-          const pc = peerConnections[viewerId];
-          console.log(
-            `[SIGNALING] Got Answer. Looking for PC with ID: ${viewerId}. Did we find it?`,
-            !!pc,
-          );
-
-          if (pc && pc.signalingState !== "stable") {
-            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-
-            // QUEUE LOGIC: Flush the queue now that description is set
-            const queue = candidateQueues[viewerId] || [];
-            while (queue.length > 0) {
-              const queuedCandidate = queue.shift();
-              if (queuedCandidate) {
-                await pc.addIceCandidate(new RTCIceCandidate(queuedCandidate));
-              }
-            }
-          }
-          break;
-        }
-
-        case "i": {
-          // Apply quality change
-          await sourceMedia.applyQuality(stringToQuality(params.split(":")[1]));
-          break;
-        }
-
-        case "l": {
-          // Set session ID
-          // sessionId = parseInt(params);
-          break;
-        }
-      }
-    });
-
-    return () => {
-      ws?.close();
-      for (const pc of Object.values(peerConnections)) {
-        pc.close();
-      }
-      peerConnections = {};
-      candidateQueues = {};
-    };
+  onDestroy(() => {
+    socket.finish();
+    isSocketOpen = false;
+    rtcManager.finish();
   });
+
+  async function commandHandler(command: string, params: string) {
+    switch (command) {
+      case "e": // Viewer requests offer
+        await createOffer(params);
+        break;
+
+      case "h": {
+        // Received ICE candidate from Viewer
+        const candidateString = params.split(":");
+        const viewerId = candidateString.shift();
+        if (viewerId == null) return;
+
+        const candidate = JSON.parse(candidateString.join(":").slice(1));
+        await rtcManager.addICECandidate(viewerId, candidate);
+        break;
+      }
+
+      case "f": {
+        // Received Answer from Viewer
+        const candidateString = params.split(":");
+        const viewerId = candidateString.shift();
+        if (viewerId == null) return;
+
+        const sdp = JSON.parse(candidateString.join(":").slice(1));
+        await rtcManager.setRemoteDescription(viewerId, sdp);
+        break;
+      }
+
+      case "i": {
+        // Apply quality change
+        await sourceMedia.applyQuality(stringToQuality(params.split(":")[1]));
+        break;
+      }
+
+      case "l": {
+        // Set session ID
+        // sessionId = parseInt(params);
+        break;
+      }
+    }
+  }
 </script>
 
-{#if !ws}
+{#if !isSocketOpen}
   <div class="selectionScreen">
     <button
       id="start-btn"
       class="selectionButton clickable"
       onclick={() => {
+        isSocketOpen = true;
         isCamera = true;
         init();
       }}
@@ -236,6 +143,7 @@
       id="start-btn"
       class="selectionButton clickable"
       onclick={() => {
+        isSocketOpen = true;
         isCamera = false;
         init();
       }}

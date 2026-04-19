@@ -36,7 +36,10 @@
       zoom: number;
       rotation: number;
     }) => void;
-    setStreamingBandwidth: (maxBitrate: number, maxFramerate: number) => void;
+    setStreamingBandwidth: (
+      maxBitrate: number,
+      maxFramerate: number,
+    ) => Promise<void>;
   }
 
   let props: Props = $props();
@@ -86,21 +89,25 @@
     if (localStream) {
       const vTrack = localStream.getVideoTracks()[0];
       if (vTrack) {
+        vTrack.contentHint = "detail";
         await vTrack
           .applyConstraints({
-            width: { exact: q.width },
-            height: { exact: q.height },
-            frameRate: { exact: q.frameRate },
+            width: { exact: q.width, min: q.width, max: q.width },
+            height: { exact: q.height, min: q.height, max: q.height },
+            frameRate: {
+              exact: q.frameRate,
+              min: q.frameRate,
+              max: q.frameRate,
+            },
           })
           .catch(() => {});
       }
     }
 
-    props.setStreamingBandwidth(q.bitrate, q.frameRate);
+    await props.setStreamingBandwidth(q.bitrate, q.frameRate);
   }
 
   function handleTouchStart(e: TouchEvent) {
-    console.log(e.touches.length);
     if (e.touches.length === 2) {
       initialPinchDistance = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
