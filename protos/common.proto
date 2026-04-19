@@ -15,6 +15,8 @@ message RequestRtcAnswer {
 
 // Response to the viewer or controller's request for an RTC offer, containing the SDP of the RTC offer.
 message RtcAnswerResponse {
+  // The ID of the streamer that created the offer.
+  uint64 streamer_id = 1;
   // The answer created by the streamer in response to the viewer or controller's request.
   string answer = 2;
 }
