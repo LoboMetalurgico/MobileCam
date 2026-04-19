@@ -5,7 +5,12 @@ use actix_ws::Session;
 use crate::{
   proto::{
     common::VideoTransform as ProtoVideoTransform,
-    controller::{StreamerSession, ViewerSession},
+    controller::{
+      ControllerSession, StreamerSession as ProtoStreamerSession,
+      ViewerSession as ProtoViewerSession,
+    },
+    streamer::StreamerSession,
+    viewer::ViewerSession,
   },
   sparse_set::SyncSparseSet,
 };
@@ -55,7 +60,7 @@ pub struct ViewerData {
   pub name: Option<String>,
 }
 
-impl From<(usize, &ViewerData)> for ViewerSession {
+impl From<(usize, &ViewerData)> for ProtoViewerSession {
   fn from((session_id, viewer_data): (usize, &ViewerData)) -> Self {
     Self {
       id: session_id as u64,
@@ -77,7 +82,7 @@ pub struct StreamerData {
   pub battery_level: Option<u8>,
 }
 
-impl From<(usize, &StreamerData)> for StreamerSession {
+impl From<(usize, &StreamerData)> for ProtoStreamerSession {
   fn from((session_id, streamer_data): (usize, &StreamerData)) -> Self {
     Self {
       id: session_id as u64,
@@ -203,6 +208,7 @@ pub struct AppState {
 }
 
 impl AppState {
+  /// Creates a new instance of `AppState` with initialized sparse sets for streamers, controllers, and viewers.
   pub fn new() -> Self {
     Self {
       streamers: SyncSparseSet::with_capacity(1),
@@ -211,6 +217,7 @@ impl AppState {
     }
   }
 
+  /// Inserts a new session into the appropriate sparse set based on its role and returns a `SessionId` that can be used to reference the session in future operations.
   pub fn insert(&self, role: Role, session: Session) -> SessionId {
     (
       role,
@@ -239,18 +246,32 @@ impl AppState {
     }
   }
 
-  /// Retrieves a session from the appropriate sparse set based on its role.
-  pub fn get_session(&self, session_id: SessionId) -> Option<Session> {
-    match Role::from(session_id) {
-      Role::Streamer => self.streamers.view(*session_id, |v| v.session.clone()),
-      Role::Controller => self.controllers.view(*session_id, |v| v.session.clone()),
-      Role::Viewer => self.viewers.view(*session_id, |v| v.session.clone()),
-    }
+  /// Retrieves the session associated with a streamer by their index, returning `None` if the streamer does not exist.
+  pub fn get_streamer_session(&self, streamer_index: usize) -> Option<StreamerSession> {
+    self.streamers.view(streamer_index, |streamer| {
+      StreamerSession::from(streamer.session.clone())
+    })
+  }
+
+  /// Retrieves the session associated with a viewer by their index, returning `None` if the viewer does not exist.
+  pub fn get_viewer_session(&self, viewer_index: usize) -> Option<ViewerSession> {
+    self.viewers.view(viewer_index, |viewer| {
+      ViewerSession::from(viewer.session.clone())
+    })
+  }
+
+  /// Retrieves the session associated with a controller by their index, returning `None` if the controller does not exist.
+  pub fn get_controller_session(&self, controller_index: usize) -> Option<ControllerSession> {
+    self.controllers.view(controller_index, |controller| {
+      ControllerSession::from(controller.session.clone())
+    })
   }
 
   /// Retrieves all streamer sessions in proto format for the controller.
-  pub fn get_all_streamer_sessions(&self) -> Vec<StreamerSession> {
-    self.streamers.map(|(i, v)| StreamerSession::from((i, v)))
+  pub fn get_all_proto_streamer_sessions(&self) -> Vec<ProtoStreamerSession> {
+    self
+      .streamers
+      .map(|(i, v)| ProtoStreamerSession::from((i, v)))
   }
 
   /// Retrieves the number of viewers currently connected to the server.
@@ -259,13 +280,13 @@ impl AppState {
   }
 
   /// Retrieves all viewer sessions that are currently watching a specific streamer, identified by their index.
-  pub fn get_viewer_sessions_by_streamer(
+  pub fn get_proto_viewer_sessions_by_streamer(
     &self,
     streamer_index: Option<usize>,
-  ) -> Vec<ViewerSession> {
+  ) -> Vec<ProtoViewerSession> {
     self.viewers.filter_map(|(i, v)| {
       if v.watching == streamer_index {
-        Some(ViewerSession::from((i, v)))
+        Some(ProtoViewerSession::from((i, v)))
       } else {
         None
       }
@@ -273,8 +294,8 @@ impl AppState {
   }
 
   /// Retrieves all viewer sessions in proto format for the controller.
-  pub fn get_all_viewer_sessions(&self) -> Vec<ViewerSession> {
-    self.viewers.map(|(i, v)| ViewerSession::from((i, v)))
+  pub fn get_all_proto_viewer_sessions(&self) -> Vec<ProtoViewerSession> {
+    self.viewers.map(|(i, v)| ProtoViewerSession::from((i, v)))
   }
 
   /// Updates the watching status of a viewer by their index, setting it to the specified streamer index or `None` if they are not watching any streamer.

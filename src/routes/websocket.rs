@@ -12,6 +12,7 @@ use tracing::Instrument;
 use crate::{
   CONN_TIMEOUT, MSG_TIMEOUT,
   app_state::{AppState, Role, SessionId},
+  proto::controller::ControllerSessionRef,
   server::{controller, streamer, viewer},
 };
 
@@ -43,7 +44,15 @@ async fn handle_message(
 
     AggregatedMessage::Binary(data) => match Role::from(session_id) {
       Role::Streamer => streamer::handle_message().await,
-      Role::Controller => controller::handle_message(*session_id, session, &app_state, data).await,
+      Role::Controller => {
+        controller::handle_message(
+          *session_id,
+          ControllerSessionRef::from(session),
+          &app_state,
+          data,
+        )
+        .await
+      }
       Role::Viewer => viewer::handle_message().await,
     },
 
@@ -81,7 +90,12 @@ async fn incoming_socket(
   tracing::info!("New session: {session_id}");
 
   let early_close = if session_id == Role::Controller {
-    controller::handle_connection(*session_id, &mut session, &app_state).await
+    controller::handle_connection(
+      *session_id,
+      ControllerSessionRef::from(&mut session),
+      &app_state,
+    )
+    .await
   } else {
     Ok(())
   };
