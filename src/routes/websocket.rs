@@ -92,17 +92,14 @@ async fn incoming_socket(
 
   tracing::info!("New session: {session_id}");
 
-  match role {
-    Role::Streamer => {
-      let _ = session
-        .text(Commands::L { id: *session_id }.to_string())
-        .await; // sends L as is to Streamer, letting them know their session ID
+  if role == Role::Streamer {
+    let _ = session
+      .text(Commands::L { id: *session_id }.to_string())
+      .await; // sends L as is to Streamer, letting them know their session ID
 
-      for mut init_session in app_state.get_all_controllers_and_viewers_sessions() {
-        let _ = init_session.text("a").await;
-      }
+    for mut init_session in app_state.get_all_controllers_and_viewers_sessions() {
+      let _ = init_session.text("a").await;
     }
-    _ => {}
   };
 
   rt::spawn(async move {
