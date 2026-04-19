@@ -165,3 +165,11 @@ message UpdateZoom {
   // The new zoom level that the streamer has updated to.
   float zoom = 2;
 }
+
+// Update sent by the controller to the server when a viewer should update which streamer they are watching.
+message UpdateWatching {
+  // The ID of the viewer that has updated which streamer they are watching.
+  uint64 viewer_id = 1;
+  // The ID of the streamer that the viewer is now watching. If not provided, the viewer is not watching any streamer.
+  optional uint64 streamer_id = 2;
+}
