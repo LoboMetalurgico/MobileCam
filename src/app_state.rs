@@ -22,10 +22,6 @@ pub struct VideoTransform {
   pub rotation: i16,
   /// The zoom level of the video stream, where 1.0 is the default zoom level, and values greater than 1.0 indicate zooming in, while values less than 1.0 indicate zooming out.
   pub zoom: f32,
-  /// The x-coordinate of the video stream's position.
-  pub x: f32,
-  /// The y-coordinate of the video stream's position.
-  pub y: f32,
 }
 
 impl From<VideoTransform> for ProtoVideoTransform {
@@ -33,8 +29,6 @@ impl From<VideoTransform> for ProtoVideoTransform {
     Self {
       rotation: value.rotation as i32,
       zoom: value.zoom,
-      x: value.x,
-      y: value.y,
     }
   }
 }
@@ -44,8 +38,6 @@ impl From<ProtoVideoTransform> for VideoTransform {
     Self {
       rotation: value.rotation as i16,
       zoom: value.zoom,
-      x: value.x,
-      y: value.y,
     }
   }
 }
