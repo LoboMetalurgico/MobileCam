@@ -10,7 +10,7 @@ message ClientToServer {
   // Contains the different commands that the viewer or controller can send to the streamer.
   oneof command {
     // Responds to the viewer or controller's request for an RTC offer.
-    RespondRtcOffer rtc_offer = 1;
+    RtcOfferResponse rtc_offer = 1;
     // Requests the streamer to update the video transform applied to the stream.
     RequestVideoTransform request_video_transform = 2;
     // Viewer or controller is requesting to set their name.
@@ -47,12 +47,12 @@ message DisconnectPeer {
   common.Session session = 1;
 }
 
-// Responds to the viewer or controller's request for an RTC offer.
-message RespondRtcOffer {
+// Response to the viewer or controller's request for an RTC offer, containing the SDP of the RTC offer.
+message RtcOfferResponse {
   // The session that requested the RTC offer.
   common.Session session = 1;
   // The SDP of the RTC offer.
-  string sdp = 3;
+  string sdp = 2;
 }
 
 // Requests all viewers and controllers to update the video transform applied to the stream.
