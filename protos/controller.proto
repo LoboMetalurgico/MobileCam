@@ -115,7 +115,7 @@ message StreamerSession {
   // The zoom level of the streamer.
   optional float zoom = 3;
   // The battery level of the streamer, represented as a percentage from 0 to 100.
-  optional int32 battery_level = 4;
+  optional uint32 battery_level = 4;
 }
 
 // Represents a viewer session connected to the server.
@@ -133,5 +133,5 @@ message BatteryLevel {
   // The ID of the streamer that has updated its battery level.
   uint64 streamer_id = 1;
   // The new battery level, represented as a percentage from 0 to 100.
-  int32 battery_level = 2;
+  uint32 battery_level = 2;
 }
