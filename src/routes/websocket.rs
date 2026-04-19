@@ -28,11 +28,6 @@ async fn timeout(session: Session) {
     .await;
 }
 
-#[derive(Debug, Deserialize)]
-struct WebSocketQuery {
-  role: Option<String>,
-}
-
 async fn handle_message(
   app_state: Data<AppState>,
   session_id: SessionId,
@@ -68,6 +63,12 @@ async fn handle_message(
   }
 }
 
+#[derive(Debug, Deserialize)]
+struct WebSocketQuery {
+  role: Option<String>,
+  name: Option<String>,
+}
+
 #[get("/ws")]
 #[tracing::instrument(skip_all, name = "websocket_route")]
 async fn incoming_socket(
@@ -85,7 +86,11 @@ async fn incoming_socket(
 
   let (res, mut session, message_stream) = actix_ws::handle(&req, stream)?;
 
-  let session_id = app_state.insert(role, session.clone());
+  let session_id = match role {
+    Role::Controller => app_state.add_controller(session.clone()),
+    Role::Streamer => app_state.add_streamer(session.clone(), query.name.as_deref()),
+    Role::Viewer => app_state.add_viewer(session.clone(), query.name.as_deref()),
+  };
 
   tracing::info!("New session: {session_id}");
 

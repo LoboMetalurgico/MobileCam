@@ -93,18 +93,6 @@ impl From<(usize, &StreamerData)> for ProtoStreamerSession {
   }
 }
 
-impl StreamerData {
-  /// Creates a new [`StreamerData`] instance with the provided session and default values for the optional fields.
-  pub fn new(session: Session) -> Self {
-    Self {
-      session,
-      name: None,
-      video_transform: None,
-      battery_level: None,
-    }
-  }
-}
-
 /// Controller data structure, containing the session ID.
 pub struct ControllerData {
   /// The session associated with the controller.
@@ -217,21 +205,31 @@ impl AppState {
     }
   }
 
-  /// Inserts a new session into the appropriate sparse set based on its role and returns a `SessionId` that can be used to reference the session in future operations.
-  pub fn insert(&self, role: Role, session: Session) -> SessionId {
-    (
-      role,
-      match role {
-        Role::Streamer => self.streamers.insert(StreamerData::new(session)),
-        Role::Controller => self.controllers.insert(ControllerData { session }),
-        Role::Viewer => self.viewers.insert(ViewerData {
-          session,
-          watching: None,
-          name: None,
-        }),
-      },
-    )
-      .into()
+  /// Add a new controller session into the [`AppState`], returning a [`SessionId`] that uniquely identifies the session and its role.
+  pub fn add_controller(&self, session: Session) -> SessionId {
+    let index = self.controllers.insert(ControllerData { session });
+    SessionId(Role::Controller, index)
+  }
+
+  /// Add a new streamer session into the [`AppState`], returning a [`SessionId`] that uniquely identifies the session and its role.
+  pub fn add_streamer(&self, session: Session, name: Option<&str>) -> SessionId {
+    let index = self.streamers.insert(StreamerData {
+      session,
+      name: name.map(|s| s.into()),
+      video_transform: None,
+      battery_level: None,
+    });
+    SessionId(Role::Streamer, index)
+  }
+
+  /// Add a new viewer session into the [`AppState`], returning a [`SessionId`] that uniquely identifies the session and its role.
+  pub fn add_viewer(&self, session: Session, name: Option<&str>) -> SessionId {
+    let index = self.viewers.insert(ViewerData {
+      session,
+      name: name.map(|s| s.into()),
+      watching: None,
+    });
+    SessionId(Role::Viewer, index)
   }
 
   /// Removes a session from the appropriate sparse set based on its role.
