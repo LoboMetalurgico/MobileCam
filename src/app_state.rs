@@ -267,6 +267,27 @@ impl AppState {
     })
   }
 
+  /// Retrieves all controller sessions.
+  pub fn get_all_controller_sessions(&self) -> Vec<(usize, ControllerSession)> {
+    self
+      .controllers
+      .map(|(i, v)| (i, ControllerSession::from(v.session.clone())))
+  }
+
+  /// Retrieves all viewer sessions that are currently watching a specific streamer, identified by their index.
+  pub fn get_all_viewer_sessions_by_streamer(
+    &self,
+    streamer_index: Option<usize>,
+  ) -> Vec<(usize, ViewerSession)> {
+    self.viewers.filter_map(|(i, v)| {
+      if v.watching == streamer_index {
+        Some((i, ViewerSession::from(v.session.clone())))
+      } else {
+        None
+      }
+    })
+  }
+
   /// Retrieves all streamer sessions in proto format for the controller.
   pub fn get_all_proto_streamer_sessions(&self) -> Vec<ProtoStreamerSession> {
     self
@@ -303,6 +324,47 @@ impl AppState {
     self
       .viewers
       .update(viewer_index, |v| v.watching = streamer_index)
+      .is_some()
+  }
+
+  /// Retrieves the streamer session in proto format for a specific streamer index, returning `None` if the streamer does not exist.
+  pub fn get_proto_streamer_session(&self, streamer_index: usize) -> Option<ProtoStreamerSession> {
+    self.streamers.view(streamer_index, |streamer| {
+      ProtoStreamerSession::from((streamer_index, streamer))
+    })
+  }
+
+  /// Retrieves the video transform for a specific streamer index, returning `None` if the streamer does not exist.
+  pub fn get_streamer_video_transform(
+    &self,
+    streamer_index: usize,
+  ) -> Option<Option<VideoTransform>> {
+    self
+      .streamers
+      .view(streamer_index, |streamer| streamer.video_transform.clone())
+  }
+
+  /// Updates the video transform for a specific streamer index, returning `true` if the update was successful and `false` if the streamer does not exist.
+  pub fn set_streamer_video_transform(
+    &self,
+    streamer_index: usize,
+    video_transform: Option<VideoTransform>,
+  ) -> bool {
+    self
+      .streamers
+      .update(streamer_index, |s| s.video_transform = video_transform)
+      .is_some()
+  }
+
+  /// Updates the battery level for a specific streamer index, returning `true` if the update was successful and `false` if the streamer does not exist.
+  pub fn set_streamer_battery_level(
+    &self,
+    streamer_index: usize,
+    battery_level: Option<u8>,
+  ) -> bool {
+    self
+      .streamers
+      .update(streamer_index, |s| s.battery_level = battery_level)
       .is_some()
   }
 }

@@ -43,7 +43,7 @@ async fn handle_message(
     AggregatedMessage::Close(reason) => Err(reason),
 
     AggregatedMessage::Binary(data) => match Role::from(session_id) {
-      Role::Streamer => streamer::handle_message().await,
+      Role::Streamer => streamer::handle_message(*session_id, &app_state, data).await,
       Role::Controller => {
         controller::handle_message(
           *session_id,
@@ -89,15 +89,17 @@ async fn incoming_socket(
 
   tracing::info!("New session: {session_id}");
 
-  let early_close = if session_id == Role::Controller {
-    controller::handle_connection(
-      *session_id,
-      ControllerSessionRef::from(&mut session),
-      &app_state,
-    )
-    .await
-  } else {
-    Ok(())
+  let early_close = match role {
+    Role::Controller => {
+      controller::handle_connection(
+        *session_id,
+        ControllerSessionRef::from(&mut session),
+        &app_state,
+      )
+      .await
+    }
+    Role::Streamer => streamer::handle_connection(*session_id, &app_state).await,
+    _ => Ok(()),
   };
 
   if let Err(reason) = early_close {
