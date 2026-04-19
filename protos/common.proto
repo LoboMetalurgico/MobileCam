@@ -5,7 +5,7 @@ package common;
 
 // Requests to answer an WebRTC offer from the streamer to establish a WebRTC connection.
 message RequestRtcAnswer {
-  // The ID of the streamer to request the WeRTC answer from.
+  // The ID of the streamer to request the WebRTC answer from.
   uint64 streamer_id = 1;
   // The offer created by the streamer in response to the viewer or controller's request.
   string offer = 2;
@@ -13,7 +13,7 @@ message RequestRtcAnswer {
   optional VideoTransform video_transform = 3;
 }
 
-// Response to the viewer or controller's request for an RTC offer, containing the SDP of the RTC offer.
+// Response to the viewer or controller's request for an WebRTC offer, containing the answer of the WebRTC offer.
 message RtcAnswerResponse {
   // The ID of the streamer that created the offer.
   uint64 streamer_id = 1;
