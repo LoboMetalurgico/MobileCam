@@ -27,7 +27,7 @@ message ServerToClient {
   // Contains the different commands that the server can send to the streamer.
   oneof command {
     // The viewer or controller is requesting an WebRTC offer from the streamer to establish a WebRTC connection.
-    RequestRtcOffer create_rtc_offer = 1;
+    RequestRtcOffer request_rtc_offer = 1;
     // The viewer or controller is responding to the streamer's WebRTC offer with an answer to establish a WebRTC connection.
     RtcAnswer rtc_answer = 2;
     // The streamer will send an ICE candidate to the viewer or controller to establish a WebRTC connection.
