@@ -11,14 +11,16 @@ message ClientToServer {
   oneof command {
     // Responds to the viewer or controller's request for an RTC offer.
     RtcOfferResponse rtc_offer = 1;
-    // Requests the streamer to update the video transform applied to the stream.
+    // Requests the viewer or controller to update the video transform applied to the stream.
     RequestVideoTransform request_video_transform = 2;
-    // Viewer or controller is requesting to set their name.
+    // The streamer is setting their name.
     common.SetName set_name = 3;
     // Streamer is updating their battery level.
     UpdateBatteryLevel update_battery_level = 4;
-    // The viewer or controller is sending an ICE candidate to the streamer to establish a WebRTC connection.
+    // Sent the ICE candidate to the viewer or controller.
     common.IceCandidate ice_candidate = 5;
+    // The streamer has updated the zoom level applied to the stream.
+    Zoom request_zoom = 6;
   }
 }
 
@@ -32,6 +34,10 @@ message ServerToClient {
     DisconnectPeer disconnect_peer = 2;
     // The streamer will send an ICE candidate to the viewer or controller to establish a WebRTC connection.
     common.IceCandidate ice_candidate = 3;
+    // The controller is requesting the streamer to update the zoom level applied to the stream.
+    Zoom change_zoom = 4;
+    // The controller is requesting the streamer to change the quality of the stream.
+    ChangeQuality change_quality = 5;
   }
 }
 
@@ -61,7 +67,20 @@ message RequestVideoTransform {
   common.VideoTransform video_transform = 1;
 }
 
+// Sent by the streamer to the controller when the streamer updates its battery level.
 message UpdateBatteryLevel {
   // The new battery level of the streamer's device as a percentage from 0 to 100.
   uint32 battery_level = 1;
+}
+
+// Sent to the streamer to update the quality of the stream.
+message ChangeQuality {
+  // The new quality the streamer is requesting to apply to the stream.
+  common.Quality quality = 1;
+}
+
+//  A request and event for updating the zoom level applied to the stream.
+message Zoom {
+  // The new zoom level the streamer is requesting or reporting. A value of 1.0 means no zoom, while a value greater than 1.0 means zoom in and a value less than 1.0 means zoom out.
+  float zoom = 1;
 }
