@@ -8,7 +8,7 @@ use crate::{
   proto::{
     common::{IceCandidate, Quality, Session as ProtoSession, SessionType},
     controller::{
-      ControllerSessionRef, ListStreamersResponse, ListViewersResponse, Ready,
+      ChangedWatching, ControllerSessionRef, ListStreamersResponse, ListViewersResponse, Ready,
       client_to_server::Command as ClientCommand, decode_client_to_server,
     },
     streamer::{ChangeQuality, RequestRtcOffer, RtcAnswer, Zoom},
@@ -82,17 +82,17 @@ pub async fn handle_message(
           })
           .await
           .map_err(|e| {
-            tracing::warn!("Failed to send RTC offer request to streamer session: {e}");
+            tracing::warn!("Failed to send WebRTC answer request to streamer session: {e}");
             Some(CloseReason {
               code: CloseCode::Error,
-              description: Some("Failed to send RTC offer request".into()),
+              description: Some("Failed to send WebRTC answer request".into()),
             })
           })?;
 
         Ok(())
       } else {
         tracing::warn!(
-          "Streamer session with ID {} not found for RTC offer request",
+          "Streamer session with ID {} not found for WebRTC answer response",
           command.streamer_id
         );
         Ok(())
@@ -283,6 +283,20 @@ pub async fn handle_message(
           command.viewer_id,
         );
 
+        for (controller_id, mut controller_session) in app_data.get_all_controller_sessions() {
+          if let Err(e) = controller_session
+            .send_command(ChangedWatching {
+              viewer_id: command.viewer_id,
+              streamer_id: Some(streamer_id),
+            })
+            .await
+          {
+            tracing::warn!(
+              "Failed to send updated watching status to controller session {controller_id}: {e}",
+            );
+          }
+        }
+
         if let Some(mut streamer_session) = app_data.get_streamer_session(streamer_id as usize) {
           streamer_session
             .send_command(RequestRtcOffer {
@@ -310,6 +324,20 @@ pub async fn handle_message(
           "Updated watching status for viewer session {} to not watching any streamer",
           command.viewer_id,
         );
+
+        for (controller_id, mut controller_session) in app_data.get_all_controller_sessions() {
+          if let Err(e) = controller_session
+            .send_command(ChangedWatching {
+              viewer_id: command.viewer_id,
+              streamer_id: None,
+            })
+            .await
+          {
+            tracing::warn!(
+              "Failed to send updated watching status to controller session {controller_id}: {e}",
+            );
+          }
+        }
 
         viewer_session
           .send_command(DisconnectStreamer {})
