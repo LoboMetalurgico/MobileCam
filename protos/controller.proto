@@ -31,6 +31,8 @@ message ClientToServer {
     ListAllViewers list_all_viewers = 5;
     // Controller is sending an ICE candidate to the streamer to establish a WebRTC connection.
     common.IceCandidate ice_candidate = 6;
+    // Controller is requesting the streamer to update the zoom level applied to the stream.
+    RequestZoom request_zoom = 7;
   }
 }
 
@@ -46,6 +48,8 @@ message ServerToClient {
     BatteryLevel battery_level = 3;
     // The streamer will send an ICE candidate to the controller to establish a WebRTC connection.
     common.IceCandidate ice_candidate = 4;
+    // The streamer will send an update to the controller when the streamer updates its zoom level.
+    UpdateZoom update_zoom = 5;
   }
 }
 
@@ -134,4 +138,20 @@ message BatteryLevel {
   uint64 streamer_id = 1;
   // The new battery level, represented as a percentage from 0 to 100.
   uint32 battery_level = 2;
+}
+
+// Requests the streamer to update the zoom level applied to the stream.
+message RequestZoom {
+  // The ID of the streamer to request the zoom level for.
+  uint64 streamer_id = 1;
+  // The new zoom level to set for the stream.
+  float zoom = 2;
+}
+
+// Represents a streamer that has updated its zoom level.
+message UpdateZoom {
+  // The ID of the streamer that has updated its zoom level.
+  uint64 streamer_id = 1;
+  // The new zoom level that the streamer has updated to.
+  float zoom = 2;
 }
