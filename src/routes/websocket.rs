@@ -4,8 +4,7 @@ use actix_web::{
   Error, HttpRequest, HttpResponse, get, rt,
   web::{self, Data},
 };
-use actix_ws::{AggregatedMessage, CloseReason, Session};
-use bytestring::ByteString;
+use actix_ws::{AggregatedMessage, CloseCode, CloseReason, Session};
 use serde::Deserialize;
 use tokio::time::sleep;
 use tracing::Instrument;
@@ -13,7 +12,7 @@ use tracing::Instrument;
 use crate::{
   CONN_TIMEOUT, MSG_TIMEOUT,
   app_state::{AppState, Role, SessionId},
-  server::{Commands, message_handler},
+  server::{controller, streamer, viewer},
 };
 
 async fn timeout(session: Session) {
@@ -38,37 +37,26 @@ async fn handle_message(
   session_id: SessionId,
   session: &mut Session,
   message: AggregatedMessage,
-) -> Option<Option<CloseReason>> {
-  let content = match message {
-    AggregatedMessage::Close(reason) => {
-      if session_id == Role::Streamer {
-        tracing::debug!("Notifying viewers and controllers about streamer disconnection");
-        for mut conn in app_state.get_all_controllers_and_viewers_sessions() {
-          let _ = conn.text(Commands::K { id: *session_id }.to_string()).await;
-        }
-      }
+) -> Result<(), Option<CloseReason>> {
+  match message {
+    AggregatedMessage::Close(reason) => Err(reason),
 
-      return Some(reason);
-    }
-
-    AggregatedMessage::Binary(data) => match ByteString::try_from(data)
-      .inspect(|_| tracing::debug!("Received text content on a binary message, treating as text"))
-    {
-      Ok(v) => v,
-      Err(e) => {
-        tracing::warn!("Unexpected binary message: {e}");
-        return None;
-      }
+    AggregatedMessage::Binary(data) => match Role::from(session_id) {
+      Role::Streamer => streamer::handle_message().await,
+      Role::Controller => controller::handle_message(*session_id, session, &app_state, data).await,
+      Role::Viewer => viewer::handle_message().await,
     },
 
-    AggregatedMessage::Text(txt) => txt,
+    AggregatedMessage::Text(_) => {
+      tracing::warn!("Text messages are not supported");
+      Err(Some(CloseReason {
+        code: CloseCode::Unsupported,
+        description: Some("Text messages are not supported.".into()),
+      }))
+    }
 
-    _ => return None,
-  };
-
-  message_handler(app_state, session_id, session, content).await;
-
-  None
+    _ => Ok(()),
+  }
 }
 
 #[get("/ws")]
@@ -92,15 +80,17 @@ async fn incoming_socket(
 
   tracing::info!("New session: {session_id}");
 
-  if role == Role::Streamer {
-    let _ = session
-      .text(Commands::L { id: *session_id }.to_string())
-      .await; // sends L as is to Streamer, letting them know their session ID
-
-    for mut init_session in app_state.get_all_controllers_and_viewers_sessions() {
-      let _ = init_session.text("a").await;
-    }
+  let early_close = if session_id == Role::Controller {
+    controller::handle_connection(*session_id, &mut session, &app_state).await
+  } else {
+    Ok(())
   };
+
+  if let Err(reason) = early_close {
+    let _ = session.close(reason).await;
+    app_state.remove_session(session_id);
+    return Ok(res);
+  }
 
   rt::spawn(async move {
     let mut message_stream = message_stream.aggregate_continuations();
@@ -112,7 +102,7 @@ async fn incoming_socket(
       tokio::select! {
         Some(Ok(message)) =  message_stream.recv() => {
           timeout_task.abort();
-          if let Some(v) = handle_message(app_state.clone(), session_id, &mut session, message).await {
+          if let Err(v) = handle_message(app_state.clone(), session_id, &mut session, message).await {
             break v;
           } else {
             tracing::trace!("Creating new timeout task");
@@ -123,7 +113,7 @@ async fn incoming_socket(
         _ = message_timeout => {
           tracing::trace!("Message timeout reached, sending ping to check connection health");
           if let Err(e) = session.ping(b"").await {
-            tracing::debug!("Failed to send ping: {e}");
+            tracing::warn!("Failed to send ping: {e}");
             timeout_task.abort();
             break Some(CloseReason {
               code: 4001.into(),

@@ -2,7 +2,48 @@
 
 use actix_ws::Session;
 
-use crate::sparse_set::SyncSparseSet;
+use crate::{
+  proto::{
+    common::VideoTransform as ProtoVideoTransform,
+    controller::{StreamerSession, ViewerSession},
+  },
+  sparse_set::SyncSparseSet,
+};
+
+/// Video transform data structure, containing rotation, zoom, and position information for the video stream.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct VideoTransform {
+  /// The rotation of the video stream in degrees, where 0 is the default orientation, and positive values indicate clockwise rotation.
+  pub rotation: i16,
+  /// The zoom level of the video stream, where 1.0 is the default zoom level, and values greater than 1.0 indicate zooming in, while values less than 1.0 indicate zooming out.
+  pub zoom: f32,
+  /// The x-coordinate of the video stream's position.
+  pub x: f32,
+  /// The y-coordinate of the video stream's position.
+  pub y: f32,
+}
+
+impl From<VideoTransform> for ProtoVideoTransform {
+  fn from(value: VideoTransform) -> Self {
+    Self {
+      rotation: value.rotation as i32,
+      zoom: value.zoom,
+      x: value.x,
+      y: value.y,
+    }
+  }
+}
+
+impl From<ProtoVideoTransform> for VideoTransform {
+  fn from(value: ProtoVideoTransform) -> Self {
+    Self {
+      rotation: value.rotation as i16,
+      zoom: value.zoom,
+      x: value.x,
+      y: value.y,
+    }
+  }
+}
 
 /// Viewer data structure, containing the session ID and an optional field for the streamer they are watching.
 pub struct ViewerData {
@@ -10,12 +51,53 @@ pub struct ViewerData {
   pub session: Session,
   /// An optional field indicating the streamer that the viewer is currently watching.
   pub watching: Option<usize>,
+  /// An optional field for the name of the viewer, which can be used for display purposes.
+  pub name: Option<String>,
+}
+
+impl From<(usize, &ViewerData)> for ViewerSession {
+  fn from((session_id, viewer_data): (usize, &ViewerData)) -> Self {
+    Self {
+      id: session_id as u64,
+      streamer_id: viewer_data.watching.map(|i| i as u64),
+      name: viewer_data.name.clone(),
+    }
+  }
 }
 
 /// Streamer data structure, containing the session ID.
 pub struct StreamerData {
   /// The session associated with the streamer.
   pub session: Session,
+  /// An optional field for the name of the streamer, which can be used for display purposes.
+  pub name: Option<String>,
+  /// An optional field for the video transform of the streamer's video stream.
+  pub video_transform: Option<VideoTransform>,
+  /// An optional field for the battery level of the streamer, which can be used for display purposes.
+  pub battery_level: Option<u8>,
+}
+
+impl From<(usize, &StreamerData)> for StreamerSession {
+  fn from((session_id, streamer_data): (usize, &StreamerData)) -> Self {
+    Self {
+      id: session_id as u64,
+      name: streamer_data.name.clone(),
+      zoom: streamer_data.video_transform.as_ref().map(|t| t.zoom),
+      battery_level: streamer_data.battery_level.as_ref().map(|b| *b as u32),
+    }
+  }
+}
+
+impl StreamerData {
+  /// Creates a new [`StreamerData`] instance with the provided session and default values for the optional fields.
+  pub fn new(session: Session) -> Self {
+    Self {
+      session,
+      name: None,
+      video_transform: None,
+      battery_level: None,
+    }
+  }
 }
 
 /// Controller data structure, containing the session ID.
@@ -92,9 +174,21 @@ impl PartialEq<Role> for SessionId {
   }
 }
 
+impl PartialEq<SessionId> for Role {
+  fn eq(&self, other: &SessionId) -> bool {
+    *self == other.0
+  }
+}
+
 impl PartialEq<usize> for SessionId {
   fn eq(&self, other: &usize) -> bool {
     self.1 == *other
+  }
+}
+
+impl PartialEq<SessionId> for usize {
+  fn eq(&self, other: &SessionId) -> bool {
+    *self == other.1
   }
 }
 
@@ -121,11 +215,12 @@ impl AppState {
     (
       role,
       match role {
-        Role::Streamer => self.streamers.insert(StreamerData { session }),
+        Role::Streamer => self.streamers.insert(StreamerData::new(session)),
         Role::Controller => self.controllers.insert(ControllerData { session }),
         Role::Viewer => self.viewers.insert(ViewerData {
           session,
           watching: None,
+          name: None,
         }),
       },
     )
@@ -153,28 +248,40 @@ impl AppState {
     }
   }
 
-  /// Retrieves the streamer that a viewer is currently watching, if any.
-  ///
-  /// The first `Option` indicates if there is a valid viewer index, while the second `Option` indicates if the viewer is watching a valid streamer.
-  pub fn get_streamer_session_from_viewer(&self, viewer_index: usize) -> Option<Option<Session>> {
+  /// Retrieves all streamer sessions in proto format for the controller.
+  pub fn get_all_streamer_sessions(&self) -> Vec<StreamerSession> {
+    self.streamers.map(|(i, v)| StreamerSession::from((i, v)))
+  }
+
+  /// Retrieves the number of viewers currently connected to the server.
+  pub fn len_viewers(&self) -> usize {
+    self.viewers.len()
+  }
+
+  /// Retrieves all viewer sessions that are currently watching a specific streamer, identified by their index.
+  pub fn get_viewer_sessions_by_streamer(
+    &self,
+    streamer_index: Option<usize>,
+  ) -> Vec<ViewerSession> {
+    self.viewers.filter_map(|(i, v)| {
+      if v.watching == streamer_index {
+        Some(ViewerSession::from((i, v)))
+      } else {
+        None
+      }
+    })
+  }
+
+  /// Retrieves all viewer sessions in proto format for the controller.
+  pub fn get_all_viewer_sessions(&self) -> Vec<ViewerSession> {
+    self.viewers.map(|(i, v)| ViewerSession::from((i, v)))
+  }
+
+  /// Updates the watching status of a viewer by their index, setting it to the specified streamer index or `None` if they are not watching any streamer.
+  pub fn update_viewer_watching(&self, viewer_index: usize, streamer_index: Option<usize>) -> bool {
     self
       .viewers
-      .view(viewer_index, |v| v.watching)
-      .map(|streamer_index| {
-        streamer_index.and_then(|i| self.streamers.view(i, |s| s.session.clone()))
-      })
-  }
-
-  /// Retrieves all sessions for both controllers and viewers.
-  pub fn get_all_controllers_and_viewers_sessions(&self) -> impl Iterator<Item = Session> {
-    self
-      .controllers
-      .map(|(_, v)| v.session.clone())
-      .into_iter()
-      .chain(self.viewers.map(|(_, v)| v.session.clone()))
-  }
-
-  pub fn get_all_streamers_id(&self) -> Vec<usize> {
-    self.streamers.map(|(i, _)| i)
+      .update(viewer_index, |v| v.watching = streamer_index)
+      .is_some()
   }
 }
