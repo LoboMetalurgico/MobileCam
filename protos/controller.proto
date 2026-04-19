@@ -33,6 +33,8 @@ message ClientToServer {
     common.IceCandidate ice_candidate = 6;
     // Controller is requesting the streamer to update the zoom level applied to the stream.
     RequestZoom request_zoom = 7;
+    /// Controller is requesting a viewer to update which streamer they are watching.
+    UpdateWatching update_watching = 8;
   }
 }
 
