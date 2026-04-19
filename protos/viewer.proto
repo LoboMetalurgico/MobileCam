@@ -28,5 +28,13 @@ message ServerToClient {
     common.UpdateVideoTransform update_video_transform = 2;
     // The streamer will send an ICE candidate to the viewer to establish a WebRTC connection.
     common.IceCandidate ice_candidate = 3;
+    // The server will send a notification to the viewer when the streamer they are watching has disconnected from the server.
+    DisconnectStreamer disconnect_streamer = 4;
   }
+}
+
+// A command sent when streamer disconnect or controller requests a viewer to disconnect from a streamer.
+message DisconnectStreamer {
+  // The ID of the streamer to disconnect from.
+  uint64 streamer_id = 1;
 }
