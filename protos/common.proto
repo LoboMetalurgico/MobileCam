@@ -47,10 +47,6 @@ message VideoTransform {
   float zoom = 1;
   // The rotation to apply to the stream in degrees. A value of 0 means no rotation, while a value of 90 means rotate 90 degrees clockwise, and a value of -90 means rotate 90 degrees counterclockwise.
   int32 rotation = 2;
-  // The x translation to apply to the stream in pixels. A value of 0 means no translation, while a value of 10 means translate 10 pixels to the right and a value of -10 means translate 10 pixels to the left.
-  float x = 3;
-  // The y translation to apply to the stream in pixels. A value of 0 means no translation, while a value of 10 means translate 10 pixels down and a value of -10 means translate 10 pixels up.
-  float y = 4;
 }
 
 /// Represents the video transform to apply to the stream update request.
