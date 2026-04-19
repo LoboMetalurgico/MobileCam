@@ -34,7 +34,4 @@ message ServerToClient {
 }
 
 // A command sent when streamer disconnect or controller requests a viewer to disconnect from a streamer.
-message DisconnectStreamer {
-  // The ID of the streamer to disconnect from.
-  uint64 streamer_id = 1;
-}
+message DisconnectStreamer {}
