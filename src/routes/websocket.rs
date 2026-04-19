@@ -53,7 +53,7 @@ async fn handle_message(
         )
         .await
       }
-      Role::Viewer => viewer::handle_message().await,
+      Role::Viewer => viewer::handle_message(*session_id, &app_state, data).await,
     },
 
     AggregatedMessage::Text(_) => {
@@ -99,7 +99,7 @@ async fn incoming_socket(
       .await
     }
     Role::Streamer => streamer::handle_connection(*session_id, &app_state).await,
-    _ => Ok(()),
+    Role::Viewer => viewer::handle_connection(*session_id, &app_state).await,
   };
 
   if let Err(reason) = early_close {

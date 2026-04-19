@@ -24,23 +24,6 @@ pub fn encode_server_to_client<C: IntoServerToClient>(command: C) -> Vec<u8> {
   command.into_server_to_client().encode_to_vec()
 }
 
-/// A wrapper around a mutable reference to a [`Session`] that provides helper methods for sending commands to the client.
-#[derive(
-  derive_more::From,
-  derive_more::Deref,
-  derive_more::DerefMut,
-  derive_more::AsRef,
-  derive_more::AsMut,
-)]
-pub struct ViewerSessionRef<'a>(&'a mut Session);
-
-impl ViewerSessionRef<'_> {
-  /// Sends a command to the client, encoding it as a [`ServerToClient`] message.
-  pub async fn send_command<C: IntoServerToClient>(&mut self, command: C) -> Result<(), Closed> {
-    self.0.binary(encode_server_to_client(command)).await
-  }
-}
-
 /// A wrapper around [`Session`] that provides helper methods for sending commands to the client.
 #[derive(
   Clone,
@@ -79,9 +62,9 @@ impl IntoServerToClient for ServerCommand {
   }
 }
 
-impl IntoServerToClient for common::RtcAnswer {
+impl IntoServerToClient for common::RequestRtcAnswer {
   fn into_server_to_client(self) -> ServerToClient {
-    ServerCommand::RtcAnswer(self).into_server_to_client()
+    ServerCommand::RequestRtcAnswer(self).into_server_to_client()
   }
 }
 

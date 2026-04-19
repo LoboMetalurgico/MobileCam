@@ -367,4 +367,11 @@ impl AppState {
       .update(streamer_index, |s| s.battery_level = battery_level)
       .is_some()
   }
+
+  /// Retrieves the streamer session in proto format for a specific streamer index, returning `None` if the streamer does not exist.
+  pub fn get_proto_viewer_session(&self, viewer_index: usize) -> Option<ProtoViewerSession> {
+    self.viewers.view(viewer_index, |viewer| {
+      ProtoViewerSession::from((viewer_index, viewer))
+    })
+  }
 }
