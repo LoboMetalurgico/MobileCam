@@ -11,7 +11,7 @@ use crate::{
       ControllerSessionRef, ListStreamersResponse, ListViewersResponse, Ready,
       client_to_server::Command as ClientCommand, decode_client_to_server,
     },
-    streamer::{ChangeQuality, CreateRtcOffer, Zoom},
+    streamer::{ChangeQuality, RequestRtcOffer, RtcAnswer, Zoom},
     viewer::DisconnectStreamer,
   },
 };
@@ -63,21 +63,22 @@ pub async fn handle_message(
   })?;
 
   match client_to_server {
-    ClientCommand::RequestRtcOffer(command) => {
+    ClientCommand::RtcAnswerResponse(command) => {
       if let Some(mut streamer_session) =
         app_data.get_streamer_session(command.streamer_id as usize)
       {
         tracing::debug!(
-          "Received RTC offer request for streamer session {}",
+          "Received WebRTC answer response for streamer session {} with answer",
           command.streamer_id
         );
 
         streamer_session
-          .send_command(CreateRtcOffer {
+          .send_command(RtcAnswer {
             session: Some(ProtoSession {
               id: session_id as u64,
               r#type: SessionType::Controller as i32,
             }),
+            answer: command.answer,
           })
           .await
           .map_err(|e| {
@@ -284,7 +285,7 @@ pub async fn handle_message(
 
         if let Some(mut streamer_session) = app_data.get_streamer_session(streamer_id as usize) {
           streamer_session
-            .send_command(CreateRtcOffer {
+            .send_command(RequestRtcOffer {
               session: Some(ProtoSession {
                 id: command.viewer_id,
                 r#type: SessionType::Viewer as i32,

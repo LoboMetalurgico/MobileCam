@@ -7,7 +7,7 @@ use crate::{
   app_state::AppState,
   proto::{
     common::{
-      IceCandidate, RtcAnswer, Session as ProtoSession, SessionType, UpdateVideoTransform,
+      IceCandidate, RequestRtcAnswer, Session as ProtoSession, SessionType, UpdateVideoTransform,
       VideoTransform,
     },
     controller::{BatteryLevel, NewSession, UpdateZoom, new_session::Session as NewSessionEnum},
@@ -56,7 +56,7 @@ pub async fn handle_message(
   })?;
 
   match client_to_server {
-    ClientCommand::RtcAnswerResponse(command) => {
+    ClientCommand::RtcOfferResponse(command) => {
       let Some(video_transform) = app_data
         .get_streamer_video_transform(session_id)
         .map(|v| v.map(VideoTransform::from))
@@ -69,8 +69,8 @@ pub async fn handle_message(
         }));
       };
 
-      let rtc_answer = RtcAnswer {
-        answer: command.answer,
+      let rtc_answer = RequestRtcAnswer {
+        offer: command.offer,
         streamer_id: session_id as u64,
         video_transform,
       };
@@ -191,7 +191,7 @@ pub async fn handle_message(
       };
 
       for (controller_id, mut controller_session) in app_data.get_all_controller_sessions() {
-        if let Err(e) = controller_session.send_command(battery_level.clone()).await {
+        if let Err(e) = controller_session.send_command(battery_level).await {
           tracing::warn!(
             "Failed to send battery level update to controller session {controller_id}: {e}",
           );
@@ -271,7 +271,7 @@ pub async fn handle_message(
       };
 
       for (controller_id, mut controller_session) in app_data.get_all_controller_sessions() {
-        if let Err(e) = controller_session.send_command(zoom.clone()).await {
+        if let Err(e) = controller_session.send_command(zoom).await {
           tracing::warn!("Failed to send zoom request to controller session {controller_id}: {e}",);
         }
       }

@@ -62,9 +62,15 @@ impl IntoServerToClient for ServerCommand {
   }
 }
 
-impl IntoServerToClient for CreateRtcOffer {
+impl IntoServerToClient for RequestRtcOffer {
   fn into_server_to_client(self) -> ServerToClient {
-    ServerCommand::CreateRtcOffer(self).into_server_to_client()
+    ServerCommand::RequestRtcOffer(self).into_server_to_client()
+  }
+}
+
+impl IntoServerToClient for RtcAnswer {
+  fn into_server_to_client(self) -> ServerToClient {
+    ServerCommand::RtcAnswer(self).into_server_to_client()
   }
 }
 

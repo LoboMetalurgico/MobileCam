@@ -79,9 +79,9 @@ impl IntoServerToClient for ServerCommand {
   }
 }
 
-impl IntoServerToClient for common::RtcAnswer {
+impl IntoServerToClient for common::RequestRtcAnswer {
   fn into_server_to_client(self) -> ServerToClient {
-    ServerCommand::RtcAnswer(self).into_server_to_client()
+    ServerCommand::RequestRtcAnswer(self).into_server_to_client()
   }
 }
 
