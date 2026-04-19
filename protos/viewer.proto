@@ -11,10 +11,8 @@ message ClientToServer {
   oneof command {
     // Viewer is requesting an RTC offer from the streamer to establish a WebRTC connection.
     common.RequestRtcOffer request_rtc_offer = 1;
-    // Viewer is requesting to set their name.
-    common.SetName set_name = 2;
     // The viewer is sending an ICE candidate to the streamer to establish a WebRTC connection.
-    common.IceCandidate ice_candidate = 3;
+    common.IceCandidate ice_candidate = 2;
   }
 }
 
@@ -22,8 +20,8 @@ message ClientToServer {
 message ServerToClient {
   // Contains the different commands that the server can send to the viewer.
   oneof command {
-    // The streamer will send an RTC offer to the viewer when the viewer requests it.
-    common.RtcOffer rtc_offer = 1;
+    // The streamer will send an RTC answer to the viewer when the viewer requests an RTC offer to establish a WebRTC connection.
+    common.RtcAnswer rtc_answer = 1;
     // The streamer will send a request to update the video transform applied to the stream when the streamer requests it.
     common.UpdateVideoTransform update_video_transform = 2;
     // The streamer will send an ICE candidate to the viewer to establish a WebRTC connection.

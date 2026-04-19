@@ -42,8 +42,8 @@ message ClientToServer {
 message ServerToClient {
   // Contains the different commands that the server can send to the controller.
   oneof command {
-    // The streamer will send an RTC offer to the controller when the controller requests it.
-    common.RtcOffer rtc_offer = 1;
+    // The streamer will send an RTC answer to the controller when the controller requests it.
+    common.RtcAnswer rtc_answer = 1;
     // The streamer will send a request to update the video transform applied to the stream when the streamer requests it.
     common.UpdateVideoTransform update_video_transform = 2;
     // Sent by the streamer to the controller when the streamer updates its battery level.
