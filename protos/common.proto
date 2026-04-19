@@ -17,13 +17,13 @@ message IceCandidate {
   string candidate = 2;
 }
 
-// Represents an RTC offer from the streamer.
-message RtcOffer {
-  // The ID of the streamer that the offer is for.
+// Represents an RTC answer from the streamer.
+message RtcAnswer {
+  // The ID of the streamer that the answer is for.
   uint64 streamer_id = 1;
-  // The SDP of the RTC offer.
-  string sdp = 2;
-  // The video transform applied to the stream when the offer was created.
+  // The answer created by the streamer in response to the viewer or controller's request.
+  string answer = 2;
+  // The video transform applied to the stream when the answer was created.
   optional common.VideoTransform video_transform = 3;
 }
 
@@ -77,10 +77,4 @@ message Session {
   uint64 id = 1;
   // The type of the session.
   SessionType type = 2;
-}
-
-// Set the session's name.
-message SetName {
-  // The new name to set.
-  string name = 1;
 }
