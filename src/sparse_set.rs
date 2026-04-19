@@ -146,6 +146,24 @@ impl<T> SyncSparseSet<T> {
   pub fn filter_map<U, F: Fn((usize, &T)) -> Option<U>>(&self, filter_map_fn: F) -> Vec<U> {
     self.inner.lock().iter().filter_map(filter_map_fn).collect()
   }
+
+  /// Returns a vector of filtered and updated values from the [`SparseSet`] by applying the provided filter and update function to each element.
+  pub fn filter_update<U, F: Fn((usize, &mut T)) -> Option<U>>(&self, filter_map_fn: F) -> Vec<U> {
+    let mut lock = self.inner.lock();
+    let mut results = Vec::with_capacity(lock.len());
+
+    for index in 0..lock.len() {
+      if let Some(data) = lock.get_mut(index) {
+        if let Some(result) = filter_map_fn((index, data)) {
+          results.push(result);
+        }
+      } else {
+        break;
+      }
+    }
+
+    results
+  }
 }
 
 /// An iterator over the elements of a [`SparseSet`], yielding pairs of (index, value).
@@ -168,5 +186,10 @@ impl<'a, T> Iterator for SparseSetIter<'a, T> {
       }
     }
     None
+  }
+
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    let remaining = self.sparse_set.sparse.len() - self.current;
+    (remaining, Some(remaining))
   }
 }

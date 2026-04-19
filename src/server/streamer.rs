@@ -10,8 +10,11 @@ use crate::{
       IceCandidate, RequestRtcAnswer, Session as ProtoSession, SessionType, UpdateVideoTransform,
       VideoTransform,
     },
-    controller::{BatteryLevel, NewSession, UpdateZoom, new_session::Session as NewSessionEnum},
+    controller::{
+      BatteryLevel, DropSession, NewSession, UpdateZoom, new_session::Session as NewSessionEnum,
+    },
     streamer::{client_to_server::Command as ClientCommand, decode_client_to_server},
+    viewer::DisconnectStreamer,
   },
 };
 
@@ -40,6 +43,31 @@ pub async fn handle_connection(
   Ok(())
 }
 
+/// Handle a disconnection from a streamer session, performing any necessary cleanup and notifying relevant viewer and controller sessions about the disconnection.
+pub async fn handle_disconnect(session_id: usize, app_data: &AppState) {
+  for (i, mut controller_session) in app_data.get_all_controller_sessions() {
+    if let Err(e) = controller_session
+      .send_command(DropSession {
+        session: Some(ProtoSession {
+          id: session_id as u64,
+          r#type: SessionType::Streamer as i32,
+        }),
+      })
+      .await
+    {
+      tracing::warn!(
+        "Failed to send streamer disconnect notification to controller session {i}: {e}"
+      );
+    }
+  }
+
+  for (i, mut viewer_session) in app_data.handle_streamer_disconnection(session_id) {
+    if let Err(e) = viewer_session.send_command(DisconnectStreamer {}).await {
+      tracing::warn!("Failed to send streamer disconnect notification to viewer session {i}: {e}");
+    }
+  }
+}
+
 /// Handle a message from a streamer session, processing the binary data and performing necessary actions based on the message content.
 pub async fn handle_message(
   session_id: usize,
@@ -47,7 +75,7 @@ pub async fn handle_message(
   message: impl Buf,
 ) -> Result<(), Option<CloseReason>> {
   let client_to_server = decode_client_to_server(message).map_err(|e| {
-    tracing::warn!("Failed to decode message from controller: {e}");
+    tracing::warn!("Failed to decode message from streamer: {e}");
 
     Some(CloseReason {
       code: CloseCode::Unsupported,

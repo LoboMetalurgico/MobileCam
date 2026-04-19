@@ -7,7 +7,7 @@ use crate::{
   app_state::AppState,
   proto::{
     common::{IceCandidate, Session as ProtoSession, SessionType},
-    controller::{NewSession, new_session::Session as NewSessionEnum},
+    controller::{DropSession, NewSession, new_session::Session as NewSessionEnum},
     streamer::RtcAnswer,
     viewer::{client_to_server::Command as ClientCommand, decode_client_to_server},
   },
@@ -38,6 +38,25 @@ pub async fn handle_connection(
   Ok(())
 }
 
+/// Handle a disconnection from a viewer session, performing any necessary cleanup and notifying relevant controller sessions about the disconnection.
+pub async fn handle_disconnect(session_id: usize, app_data: &AppState) {
+  for (i, mut controller_session) in app_data.get_all_controller_sessions() {
+    if let Err(e) = controller_session
+      .send_command(DropSession {
+        session: Some(ProtoSession {
+          id: session_id as u64,
+          r#type: SessionType::Viewer as i32,
+        }),
+      })
+      .await
+    {
+      tracing::warn!(
+        "Failed to send viewer disconnect notification for session {session_id} to controller session {i}: {e}"
+      );
+    }
+  }
+}
+
 /// Handle a message from a viewer session, processing the binary data and performing necessary actions based on the message content.
 pub async fn handle_message(
   session_id: usize,
@@ -45,7 +64,7 @@ pub async fn handle_message(
   message: impl Buf,
 ) -> Result<(), Option<CloseReason>> {
   let client_to_server = decode_client_to_server(message).map_err(|e| {
-    tracing::warn!("Failed to decode message from controller: {e}");
+    tracing::warn!("Failed to decode message from viewer: {e}");
 
     Some(CloseReason {
       code: CloseCode::Unsupported,

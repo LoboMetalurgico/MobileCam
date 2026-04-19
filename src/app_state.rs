@@ -372,4 +372,19 @@ impl AppState {
       ProtoViewerSession::from((viewer_index, viewer))
     })
   }
+
+  /// Handles the disconnection of a streamer by their index, returning a vector of viewer sessions that were watching the disconnected streamer.
+  pub fn handle_streamer_disconnection(
+    &self,
+    streamer_index: usize,
+  ) -> Vec<(usize, ViewerSession)> {
+    self.viewers.filter_update(|(i, v)| {
+      if v.watching == Some(streamer_index) {
+        v.watching = None;
+        Some((i, ViewerSession::from(v.session.clone())))
+      } else {
+        None
+      }
+    })
+  }
 }

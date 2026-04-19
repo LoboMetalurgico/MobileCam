@@ -145,6 +145,12 @@ async fn incoming_socket(
       }
     };
 
+    match role {
+      Role::Streamer => streamer::handle_disconnect(*session_id, &app_state).await,
+      Role::Viewer => viewer::handle_disconnect(*session_id, &app_state).await,
+      _ => {},
+    };
+
     let log_close_reason = close_reason.as_ref().map(|v| v.code);
     let _ = session.close(close_reason).await;
     app_state.remove_session(session_id);
