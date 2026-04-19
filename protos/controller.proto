@@ -19,8 +19,8 @@ message Ready {
 message ClientToServer {
   // Contains the different commands that the controller can send to the server.
   oneof command {
-    // Controller is requesting an RTC offer from the streamer to establish a WebRTC connection.
-    common.RequestRtcOffer request_rtc_offer = 1;
+    // Responds to the streamer WebRTC offer.
+    common.RtcAnswerResponse rtc_answer_response = 1;
     // Controller is requesting a change in the quality of the stream from the streamer.
     RequestChangeQuality request_change_quality = 2;
     // Controller is requesting the list of streamers connected to the server.
@@ -42,8 +42,8 @@ message ClientToServer {
 message ServerToClient {
   // Contains the different commands that the server can send to the controller.
   oneof command {
-    // The streamer will send an RTC offer to the controller when the controller requests it.
-    common.RtcOffer rtc_offer = 1;
+    // The streamer is requesting the controller to answer the RTC offer created by the streamer to establish a WebRTC connection.
+    common.RequestRtcAnswer request_rtc_answer = 1;
     // The streamer will send a request to update the video transform applied to the stream when the streamer requests it.
     common.UpdateVideoTransform update_video_transform = 2;
     // Sent by the streamer to the controller when the streamer updates its battery level.

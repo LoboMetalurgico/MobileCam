@@ -9,18 +9,16 @@ import "common.proto";
 message ClientToServer {
   // Contains the different commands that the viewer or controller can send to the streamer.
   oneof command {
-    // Responds to the viewer or controller's request for an RTC offer.
-    RtcOfferResponse rtc_offer = 1;
+    // Responds to the streamer WebRTC offer.
+    RtcOfferResponse rtc_offer_response = 1;
     // Requests the viewer or controller to update the video transform applied to the stream.
     RequestVideoTransform request_video_transform = 2;
-    // The streamer is setting their name.
-    common.SetName set_name = 3;
     // Streamer is updating their battery level.
-    UpdateBatteryLevel update_battery_level = 4;
+    UpdateBatteryLevel update_battery_level = 3;
     // Sent the ICE candidate to the viewer or controller.
-    common.IceCandidate ice_candidate = 5;
+    common.IceCandidate ice_candidate = 4;
     // The streamer has updated the zoom level applied to the stream.
-    Zoom request_zoom = 6;
+    Zoom request_zoom = 5;
   }
 }
 
@@ -28,37 +26,47 @@ message ClientToServer {
 message ServerToClient {
   // Contains the different commands that the server can send to the streamer.
   oneof command {
-    // The viewer or controller is requesting an RTC offer from the streamer to establish a WebRTC connection.
-    CreateRtcOffer create_rtc_offer = 1;
-    // The viewer or controller is requesting to disconnect from the streamer.
-    DisconnectPeer disconnect_peer = 2;
+    // The viewer or controller is requesting an WebRTC offer from the streamer to establish a WebRTC connection.
+    RequestRtcOffer request_rtc_offer = 1;
+    // The viewer or controller is responding to the streamer's WebRTC offer with an answer to establish a WebRTC connection.
+    RtcAnswer rtc_answer = 2;
     // The streamer will send an ICE candidate to the viewer or controller to establish a WebRTC connection.
     common.IceCandidate ice_candidate = 3;
+    // The viewer or controller is requesting to disconnect from the streamer.
+    DisconnectPeer disconnect_peer = 4;
     // The controller is requesting the streamer to update the zoom level applied to the stream.
-    Zoom change_zoom = 4;
+    Zoom change_zoom = 5;
     // The controller is requesting the streamer to change the quality of the stream.
-    ChangeQuality change_quality = 5;
+    ChangeQuality change_quality = 6;
   }
 }
 
 // Requests the streamer to create an RTC offer for the viewer or controller to establish a WebRTC connection.
-message CreateRtcOffer {
+message RequestRtcOffer {
   // Who is requesting the RTC offer.
   common.Session session = 1;
+}
+
+/// Response to the viewer or controller's request for an RTC offer, containing the SDP of the RTC offer.
+message RtcOfferResponse {
+  // The session that requested the RTC offer.
+  common.Session session = 1;
+  // The offer created by the streamer in response to the viewer or controller's request.
+  string offer = 2;
+}
+
+/// Answer from the viewer or controller to the streamer in response to the RTC offer created by the streamer.
+message RtcAnswer {
+  // The session that responded to the RTC offer.
+  common.Session session = 1;
+  // The answer created by the viewer or controller in response to the RTC offer created by the streamer.
+  string answer = 2;
 }
 
 // Requests the streamer to disconnect the WebRTC connection with the viewer or controller.
 message DisconnectPeer {
   // The session that needs to have disconnected from the streamer.
   common.Session session = 1;
-}
-
-// Response to the viewer or controller's request for an RTC offer, containing the SDP of the RTC offer.
-message RtcOfferResponse {
-  // The session that requested the RTC offer.
-  common.Session session = 1;
-  // The SDP of the RTC offer.
-  string sdp = 2;
 }
 
 // Requests all viewers and controllers to update the video transform applied to the stream.

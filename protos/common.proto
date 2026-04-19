@@ -3,10 +3,22 @@ syntax = "proto3";
 // Contains commons messages and enums shared between two or more proto files.
 package common;
 
-// Requests a new RTC offer from the streamer.
-message RequestRtcOffer {
-  // The ID of the streamer to request the offer from.
+// Requests to answer an WebRTC offer from the streamer to establish a WebRTC connection.
+message RequestRtcAnswer {
+  // The ID of the streamer to request the WebRTC answer from.
   uint64 streamer_id = 1;
+  // The offer created by the streamer in response to the viewer or controller's request.
+  string offer = 2;
+  // The video transform from the streamer to apply to the stream.
+  optional VideoTransform video_transform = 3;
+}
+
+// Response to the viewer or controller's request for an WebRTC offer, containing the answer of the WebRTC offer.
+message RtcAnswerResponse {
+  // The ID of the streamer that created the offer.
+  uint64 streamer_id = 1;
+  // The answer created by the streamer in response to the viewer or controller's request.
+  string answer = 2;
 }
 
 // Represents an ICE candidate from the streamer or viewer.
@@ -15,16 +27,6 @@ message IceCandidate {
   Session session = 1;
   // The candidate string.
   string candidate = 2;
-}
-
-// Represents an RTC offer from the streamer.
-message RtcOffer {
-  // The ID of the streamer that the offer is for.
-  uint64 streamer_id = 1;
-  // The SDP of the RTC offer.
-  string sdp = 2;
-  // The video transform applied to the stream when the offer was created.
-  optional common.VideoTransform video_transform = 3;
 }
 
 // Represents the preset quality of the audio and video stream.
@@ -77,10 +79,4 @@ message Session {
   uint64 id = 1;
   // The type of the session.
   SessionType type = 2;
-}
-
-// Set the session's name.
-message SetName {
-  // The new name to set.
-  string name = 1;
 }
