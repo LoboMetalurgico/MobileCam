@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+// Contains commons messages and enums shared between two or more proto files.
+package common;
+
+// Requests to answer an WebRTC offer from the streamer to establish a WebRTC connection.
+message RequestRtcAnswer {
+  // The ID of the streamer to request the WebRTC answer from.
+  uint64 streamer_id = 1;
+  // The offer created by the streamer in response to the viewer or controller's request.
+  string offer = 2;
+  // The video transform from the streamer to apply to the stream.
+  optional VideoTransform video_transform = 3;
+}
+
+// Response to the viewer or controller's request for an WebRTC offer, containing the answer of the WebRTC offer.
+message RtcAnswerResponse {
+  // The ID of the streamer that created the offer.
+  uint64 streamer_id = 1;
+  // The answer created by the streamer in response to the viewer or controller's request.
+  string answer = 2;
+}
+
+// Represents an ICE candidate from the streamer or viewer.
+message IceCandidate {
+  // The ID of the session that the candidate is for or from.
+  Session session = 1;
+  // The candidate string.
+  string candidate = 2;
+}
+
+// Represents the preset quality of the audio and video stream.
+enum Quality {
+  // The default value.
+  QUALITY_UNSPECIFIED = 0;
+  // The lowest quality, with the lowest bitrate and resolution.
+  QUALITY_LOW = 1;
+  // The medium quality, with a moderate bitrate and resolution.
+  QUALITY_MEDIUM = 2;
+  // The highest quality, with the highest bitrate and resolution.
+  QUALITY_HIGH = 3;
+}
+
+// Represents the video transform to apply to the stream.
+message VideoTransform {
+  // The zoom level to apply to the stream. A value of 1.0 means no zoom, while a value greater than 1.0 means zoom in and a value less than 1.0 means zoom out.
+  float zoom = 1;
+  // The rotation to apply to the stream in degrees. A value of 0 means no rotation, while a value of 90 means rotate 90 degrees clockwise, and a value of -90 means rotate 90 degrees counterclockwise.
+  int32 rotation = 2;
+  // The x translation to apply to the stream in pixels. A value of 0 means no translation, while a value of 10 means translate 10 pixels to the right and a value of -10 means translate 10 pixels to the left.
+  float x = 3;
+  // The y translation to apply to the stream in pixels. A value of 0 means no translation, while a value of 10 means translate 10 pixels down and a value of -10 means translate 10 pixels up.
+  float y = 4;
+}
+
+/// Represents the video transform to apply to the stream update request.
+message UpdateVideoTransform {
+  // The ID of the streamer to update the video transform for.
+  uint64 streamer_id = 1;
+  // The new video transform to apply to the stream.
+  VideoTransform video_transform = 2;
+}
+
+// Represents the type of session connected to the server.
+enum SessionType {
+  // The default value.
+  SESSION_TYPE_UNKNOWN = 0;
+  // A session for a controller.
+  SESSION_TYPE_CONTROLLER = 1;
+  // A session for a streamer.
+  SESSION_TYPE_STREAMER = 2;
+  // A session for a viewer.
+  SESSION_TYPE_VIEWER = 3;
+}
+
+// Represents a session ID and type, which can be used to identify a session in the server.
+message Session {
+  // The ID of the session.
+  uint64 id = 1;
+  // The type of the session.
+  SessionType type = 2;
+}

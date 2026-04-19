@@ -14,9 +14,10 @@ use crate::{
 };
 
 mod app_state;
-mod commands;
+mod proto;
 mod routes;
 mod server;
+mod sparse_set;
 
 mod frontend {
   include!(concat!(env!("OUT_DIR"), "/frontend.rs"));

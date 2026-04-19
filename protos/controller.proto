@@ -1,0 +1,177 @@
+syntax = "proto3";
+
+// Contains messages for the communication between the controller clients and server.
+package controller;
+
+import "common.proto";
+
+// The controller is ready to receive commands from the server.
+message Ready {
+  // The ID of the controller that is ready.
+  uint64 id = 1;
+  // The list of streamers connected to the server.
+  repeated StreamerSession streamers = 2;
+  // The number of viewers connected to the server.
+  uint32 viewer_count = 3;
+}
+
+// Contains the different commands that the controller can send to the server.
+message ClientToServer {
+  // Contains the different commands that the controller can send to the server.
+  oneof command {
+    // Responds to the streamer WebRTC offer.
+    common.RtcAnswerResponse rtc_answer_response = 1;
+    // Controller is requesting a change in the quality of the stream from the streamer.
+    RequestChangeQuality request_change_quality = 2;
+    // Controller is requesting the list of streamers connected to the server.
+    ListStreamers list_streamers = 3;
+    // Controller is requesting the list of viewers connected to a specific streamer or not watching any streamer.
+    ListViewers list_viewers = 4;
+    // Controller is requesting the list of all viewers connected to the server.
+    ListAllViewers list_all_viewers = 5;
+    // Controller is sending an ICE candidate to the streamer to establish a WebRTC connection.
+    common.IceCandidate ice_candidate = 6;
+    // Controller is requesting the streamer to update the zoom level applied to the stream.
+    RequestZoom request_zoom = 7;
+    /// Controller is requesting a viewer to update which streamer they are watching.
+    UpdateWatching update_watching = 8;
+  }
+}
+
+// Contains the different commands that the server can send to the controller.
+message ServerToClient {
+  // Contains the different commands that the server can send to the controller.
+  oneof command {
+    // The streamer is requesting the controller to answer the RTC offer created by the streamer to establish a WebRTC connection.
+    common.RequestRtcAnswer request_rtc_answer = 1;
+    // The streamer will send a request to update the video transform applied to the stream when the streamer requests it.
+    common.UpdateVideoTransform update_video_transform = 2;
+    // Sent by the streamer to the controller when the streamer updates its battery level.
+    BatteryLevel battery_level = 3;
+    // The streamer will send an ICE candidate to the controller to establish a WebRTC connection.
+    common.IceCandidate ice_candidate = 4;
+    // The streamer will send an update to the controller when the streamer updates its zoom level.
+    UpdateZoom update_zoom = 5;
+    // The server will send the list of streamers connected to the server.
+    ListStreamersResponse list_streamers_response = 6;
+    // The server will send the list of viewers connected to the server in response to the controller's request.
+    ListViewersResponse list_viewers_response = 7;
+    // The server will send a notification to the controller when a new session, either a streamer or viewer, has connected to the server, when a session has disconnected from the server, or when a viewer has changed which streamer they are watching.
+    NewSession new_session = 8;
+    // The server will send a notification to the controller when a session, either a streamer or viewer, has disconnected from the server.
+    DropSession drop_session = 9;
+    // The server will send a notification to the controller when a viewer has changed which streamer they are watching.
+    ChangedWatching changed_watching = 10;
+  }
+}
+
+// Requests a change in the quality of the stream from the streamer.
+message RequestChangeQuality {
+  // The ID of the streamer to change the quality for.
+  uint64 streamer_id = 1;
+  // The new quality to set for the stream.
+  common.Quality quality = 2;
+}
+
+// Requests the list of streamers connected to the server.
+message ListStreamers {}
+
+// Requests the list of viewers connected to the server based on if they are watching a specific streamer or not.
+message ListViewers {
+  // The ID of the streamer to list the viewers for. If not provided, the server will return the list of viewers that are not watching any streamer.
+  optional uint64 streamer_id = 1;
+}
+
+// Requests the list of all viewers connected to the server.
+message ListAllViewers {}
+
+// Response to a request for the list of streamers connected to the server.
+message ListStreamersResponse {
+  // The list of streamers connected to the server.
+  repeated StreamerSession streamers = 1;
+}
+
+// Response to a request for the list of viewers connected to the server.
+message ListViewersResponse {
+  // The list of viewers connected to the server.
+  repeated ViewerSession viewers = 1;
+}
+
+// Represents a new session that has connected to the server, either a streamer or a viewer.
+message NewSession {
+  // Contains the different types of sessions that can connect to the server.
+  oneof session {
+    // A new streamer has connected to the server.
+    StreamerSession streamer_session = 1;
+    // A new viewer has connected to the server.
+    ViewerSession viewer_session = 2;
+  }
+}
+
+// Represents a session that has disconnected from the server, either a streamer or a viewer.
+message DropSession {
+  // The session that has disconnected from the server, either a streamer or a viewer.
+  common.Session session = 1;
+}
+
+// Represents a viewer that has changed which streamer they are watching.
+message ChangedWatching {
+  // The ID of the viewer that has changed which streamer they are watching.
+  uint64 viewer_id = 1;
+  // The ID of the streamer that the viewer is now watching. If not provided, the viewer is not watching any streamer.
+  optional uint64 streamer_id = 2;
+}
+
+// Represents a streamer session connected to the server.
+message StreamerSession {
+  // The ID of the streamer.
+  uint64 id = 1;
+  // The name of the streamer.
+  optional string name = 2;
+  // The zoom level of the streamer.
+  optional float zoom = 3;
+  // The battery level of the streamer, represented as a percentage from 0 to 100.
+  optional uint32 battery_level = 4;
+}
+
+// Represents a viewer session connected to the server.
+message ViewerSession {
+  // The ID of the viewer.
+  uint64 id = 1;
+  // The name of the viewer.
+  optional string name = 2;
+  // The ID of the streamer the viewer is connected to.
+  optional uint64 streamer_id = 3;
+}
+
+// The streamer is updating its battery level.
+message BatteryLevel {
+  // The ID of the streamer that has updated its battery level.
+  uint64 streamer_id = 1;
+  // The new battery level, represented as a percentage from 0 to 100.
+  uint32 battery_level = 2;
+}
+
+// Requests the streamer to update the zoom level applied to the stream.
+message RequestZoom {
+  // The ID of the streamer to request the zoom level for.
+  uint64 streamer_id = 1;
+  // The new zoom level to set for the stream.
+  float zoom = 2;
+}
+
+// Represents a streamer that has updated its zoom level.
+message UpdateZoom {
+  // The ID of the streamer that has updated its zoom level.
+  uint64 streamer_id = 1;
+  // The new zoom level that the streamer has updated to.
+  float zoom = 2;
+}
+
+// Update sent by the controller to the server when a viewer should update which streamer they are watching.
+message UpdateWatching {
+  // The ID of the viewer that has updated which streamer they are watching.
+  uint64 viewer_id = 1;
+  // The ID of the streamer that the viewer is now watching. If not provided, the viewer is not watching any streamer.
+  optional uint64 streamer_id = 2;
+}

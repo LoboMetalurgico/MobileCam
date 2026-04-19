@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+// Contains messages for the communication between the viewer clients and server.
+package viewer;
+
+import "common.proto";
+
+// Contains the different commands that the viewer can send to the server.
+message ClientToServer {
+  // Contains the different commands that the viewer can send to the server.
+  oneof command {
+    // Responds to the streamer WebRTC offer.
+    common.RtcAnswerResponse rtc_answer_response = 1;
+    // The viewer is sending an ICE candidate to the streamer to establish a WebRTC connection.
+    common.IceCandidate ice_candidate = 2;
+  }
+}
+
+// Contains the different commands that the server can send to the viewer.
+message ServerToClient {
+  // Contains the different commands that the server can send to the viewer.
+  oneof command {
+    // The streamer is requesting the viewer to answer the RTC offer created by the streamer to establish a WebRTC connection.
+    common.RequestRtcAnswer request_rtc_answer = 1;
+    // The streamer will send a request to update the video transform applied to the stream when the streamer requests it.
+    common.UpdateVideoTransform update_video_transform = 2;
+    // The streamer will send an ICE candidate to the viewer to establish a WebRTC connection.
+    common.IceCandidate ice_candidate = 3;
+    // The server will send a notification to the viewer when the streamer they are watching has disconnected from the server.
+    DisconnectStreamer disconnect_streamer = 4;
+  }
+}
+
+// A command sent when streamer disconnect or controller requests a viewer to disconnect from a streamer.
+message DisconnectStreamer {}

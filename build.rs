@@ -11,6 +11,16 @@ use phf_codegen::Map;
 use walkdir::WalkDir;
 
 fn main() {
+  prost_build::compile_protos(
+    &[
+      "protos/controller.proto",
+      "protos/streamer.proto",
+      "protos/viewer.proto",
+    ],
+    &["protos/"],
+  )
+  .expect("Failed to compile protobuf definitions");
+
   let frontend_dir = Path::new("frontend");
   let frontend_dist_dir = frontend_dir.join("build");
 
