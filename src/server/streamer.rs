@@ -21,21 +21,20 @@ pub async fn handle_connection(
   app_data: &AppState,
 ) -> Result<(), Option<CloseReason>> {
   if let Some(myself) = app_data.get_proto_streamer_session(session_id) {
-    for (_, mut controller_session) in app_data.get_all_controller_sessions() {
+    for (i, mut controller_session) in app_data.get_all_controller_sessions() {
       if let Err(e) = controller_session
         .send_command(NewSession {
           session: Some(NewSessionEnum::StreamerSession(myself.clone())),
         })
         .await
       {
-        tracing::warn!("Failed to send new session notification to controller session: {e}");
+        tracing::warn!(
+          "Failed to send new streamer session {session_id} notification to controller session {i}: {e}"
+        );
       }
     }
   } else {
-    tracing::error!(
-      "Failed to find streamer session for new connection with ID {}",
-      session_id
-    );
+    tracing::error!("Failed to find streamer session {session_id}");
   }
 
   Ok(())
