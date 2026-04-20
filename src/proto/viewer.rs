@@ -85,3 +85,9 @@ impl IntoServerToClient for DisconnectStreamer {
     ServerCommand::DisconnectStreamer(self).into_server_to_client()
   }
 }
+
+impl IntoServerToClient for UpdateMute {
+  fn into_server_to_client(self) -> ServerToClient {
+    ServerCommand::UpdateMute(self).into_server_to_client()
+  }
+}

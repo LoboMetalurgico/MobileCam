@@ -138,3 +138,15 @@ impl IntoServerToClient for ChangedWatching {
     ServerCommand::ChangedWatching(self).into_server_to_client()
   }
 }
+
+impl IntoServerToClient for ChangedQuality {
+  fn into_server_to_client(self) -> ServerToClient {
+    ServerCommand::ChangedQuality(self).into_server_to_client()
+  }
+}
+
+impl IntoServerToClient for ChangedMute {
+  fn into_server_to_client(self) -> ServerToClient {
+    ServerCommand::ChangedMute(self).into_server_to_client()
+  }
+}
