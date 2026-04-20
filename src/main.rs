@@ -10,7 +10,7 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 
 use crate::{
   app_state::AppState,
-  routes::{static_routes::index, websocket::incoming_socket},
+  routes::{color::color_txt, logo::logo_png, static_routes::index, websocket::incoming_socket},
 };
 
 mod app_state;
@@ -90,6 +90,8 @@ async fn main() {
     App::new()
       .app_data(app_state.clone())
       .service(incoming_socket)
+      .service(logo_png)
+      .service(color_txt)
       .service(index)
   })
   .bind_rustls_0_23(
