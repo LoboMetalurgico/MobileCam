@@ -35,6 +35,8 @@ message ClientToServer {
     RequestZoom request_zoom = 7;
     /// Controller is requesting a viewer to update which streamer they are watching.
     UpdateWatching update_watching = 8;
+    // Controller is requesting the streamer to update the mute status of the stream.
+    RequestChangeMute request_mute = 9;
   }
 }
 
@@ -44,13 +46,13 @@ message ServerToClient {
   oneof command {
     // The streamer is requesting the controller to answer the RTC offer created by the streamer to establish a WebRTC connection.
     common.RequestRtcAnswer request_rtc_answer = 1;
-    // The streamer will send a request to update the video transform applied to the stream when the streamer requests it.
+    // The streamer has requested to update the CSS-based zoom level applied to the stream.
     common.UpdateVideoTransform update_video_transform = 2;
     // Sent by the streamer to the controller when the streamer updates its battery level.
     BatteryLevel battery_level = 3;
     // The streamer will send an ICE candidate to the controller to establish a WebRTC connection.
     common.IceCandidate ice_candidate = 4;
-    // The streamer will send an update to the controller when the streamer updates its zoom level.
+    // The streamer has updated the universal zoom level applied to the stream.
     UpdateZoom update_zoom = 5;
     // The server will send the list of streamers connected to the server.
     ListStreamersResponse list_streamers_response = 6;
@@ -62,6 +64,10 @@ message ServerToClient {
     DropSession drop_session = 9;
     // The server will send a notification to the controller when a viewer has changed which streamer they are watching.
     ChangedWatching changed_watching = 10;
+    // The viewer has changed the mute status of their own.
+    ChangedMute changed_mute = 11;
+    // The streamer has changed the quality of their stream.
+    ChangedQuality changed_quality = 12;
   }
 }
 
@@ -152,7 +158,7 @@ message BatteryLevel {
   uint32 battery_level = 2;
 }
 
-// Requests the streamer to update the zoom level applied to the stream.
+// Requests the streamer to update the universal zoom level applied to the stream.
 message RequestZoom {
   // The ID of the streamer to request the zoom level for.
   uint64 streamer_id = 1;
@@ -160,7 +166,7 @@ message RequestZoom {
   float zoom = 2;
 }
 
-// Represents a streamer that has updated its zoom level.
+// Represents a streamer that has updated its universal zoom level.
 message UpdateZoom {
   // The ID of the streamer that has updated its zoom level.
   uint64 streamer_id = 1;
@@ -174,4 +180,28 @@ message UpdateWatching {
   uint64 viewer_id = 1;
   // The ID of the streamer that the viewer is now watching. If not provided, the viewer is not watching any streamer.
   optional uint64 streamer_id = 2;
+}
+
+// Requests the viewer to update the mute status of the stream.
+message RequestChangeMute {
+  // The ID of the viewer to request the mute status change for.
+  uint64 viewer_id = 1;
+  // The new mute status to set for the stream. A value of true means to mute the stream, while a value of false means to un-mute the stream.
+  bool muted = 2;
+}
+
+// Streamer has changed the quality of their stream.
+message ChangedQuality {
+  // The ID of the streamer that has changed the quality of their stream.
+  uint64 streamer_id = 1;
+  // The new quality that the streamer has changed to.
+  common.Quality quality = 2;
+}
+
+// The viewer has changed the mute status of their own stream.
+message ChangedMute {
+  // The ID of the viewer that has changed the mute status of their stream.
+  uint64 viewer_id = 1;
+  // The new mute status that the viewer has changed to. A value of true means the stream is now muted, while a value of false means the stream is now un-muted.
+  bool muted = 2;
 }

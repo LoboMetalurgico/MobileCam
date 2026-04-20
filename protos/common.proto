@@ -41,7 +41,7 @@ enum Quality {
   QUALITY_HIGH = 3;
 }
 
-// Represents the video transform to apply to the stream.
+// Represents the video transform (CSS-based zoom level) applied to the stream.
 message VideoTransform {
   // The zoom level to apply to the stream. A value of 1.0 means no zoom, while a value greater than 1.0 means zoom in and a value less than 1.0 means zoom out.
   float zoom = 1;
@@ -49,7 +49,7 @@ message VideoTransform {
   int32 rotation = 2;
 }
 
-/// Represents the video transform to apply to the stream update request.
+/// Represents a update request for the video transform (CSS-based zoom level) applied to the stream.
 message UpdateVideoTransform {
   // The ID of the streamer to update the video transform for.
   uint64 streamer_id = 1;

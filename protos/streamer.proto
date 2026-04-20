@@ -19,6 +19,8 @@ message ClientToServer {
     common.IceCandidate ice_candidate = 4;
     // The streamer has updated the zoom level applied to the stream.
     Zoom request_zoom = 5;
+    // The streamer has updated the quality of the stream.
+    ChangeQualityResponse change_quality_response = 6;
   }
 }
 
@@ -91,4 +93,10 @@ message ChangeQuality {
 message Zoom {
   // The new zoom level the streamer is requesting or reporting. A value of 1.0 means no zoom, while a value greater than 1.0 means zoom in and a value less than 1.0 means zoom out.
   float zoom = 1;
+}
+
+// A response from the streamer to the controller confirming the new quality of the stream.
+message ChangeQualityResponse {
+  // The new quality the streamer is applying to the stream.
+  common.Quality quality = 1;
 }

@@ -13,6 +13,8 @@ message ClientToServer {
     common.RtcAnswerResponse rtc_answer_response = 1;
     // The viewer is sending an ICE candidate to the streamer to establish a WebRTC connection.
     common.IceCandidate ice_candidate = 2;
+    // The viewer has updated the mute status of their own stream.
+    UpdateMuteResponse update_mute_response = 3;
   }
 }
 
@@ -28,8 +30,22 @@ message ServerToClient {
     common.IceCandidate ice_candidate = 3;
     // The server will send a notification to the viewer when the streamer they are watching has disconnected from the server.
     DisconnectStreamer disconnect_streamer = 4;
+    // The controller is requesting the viewer to update the mute status of the stream.
+    UpdateMute update_mute = 5;
   }
 }
 
 // A command sent when streamer disconnect or controller requests a viewer to disconnect from a streamer.
 message DisconnectStreamer {}
+
+// Requests the viewer to update its mute status of the stream.
+message UpdateMute {
+  // The new mute status to set for the stream. A value of true means to mute the stream, while a value of false means to un-mute the stream.
+  bool muted = 2;
+}
+
+// The viewer has updated the mute status of their own stream.
+message UpdateMuteResponse {
+  // The new mute status that the viewer has changed to. A value of true means the stream is now muted, while a value of false means the stream is now un-muted.
+  bool muted = 1;
+}
