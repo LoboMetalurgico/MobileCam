@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { page } from "$app/state";
   import AsyncPrompt from "$lib/asyncPrompt.svelte";
   import { Role } from "$lib/interfaces/Role";
   import type { Session } from "$lib/interfaces/session";
@@ -172,8 +171,6 @@
       );
     }
     viewerCount = detail.viewerCount;
-    const msg = ClientToServer.create();
-    msg.
   }
 
   socket.addEventListener("ready", onReady);
