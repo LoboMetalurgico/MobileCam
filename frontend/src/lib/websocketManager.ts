@@ -1,30 +1,42 @@
-import type { Role } from "./interfaces/Role";
+import { Role } from "./interfaces/Role";
+import { ServerToClient as ServerToStreamer } from "./protos/streamer";
+import { ServerToClient as ServerToViewer } from "./protos/viewer";
+import { Ready, ServerToClient as ServerToController } from "./protos/controller";
 
-export class WebsocketManager {
+const roleToServerMap = {
+  [Role.Streamer]: ServerToStreamer,
+  [Role.Viewer]: ServerToViewer,
+  [Role.Controller]: ServerToController,
+};
+
+export class WebsocketManager<T extends keyof typeof roleToServerMap> extends EventTarget {
   private hostProtocol?: string;
   private hostname?: string;
-  private role: Role;
   private socket?: WebSocket;
-  private commandParser: (command: string, params: string) => void;
-  private extraQueries?: [string, string][];
+  private commandParser: (command: ServerToStreamer | ServerToViewer | ServerToController) => void;
+  private extraQueries?: [string, string | null][];
   private retryCount = 0;
   private isRetrying = false;
   private isExiting = false;
-  private messagePool: string[] = [];
+  private messagePool: (Uint8Array | string)[] = [];
+  private role: T;
+  private isControllerReady = false;
 
-  constructor(role: Role, commandParser: (command: string, params: string) => void) {
+  constructor(role: T, commandParser: (command: ServerToStreamer | ServerToViewer | ServerToController) => void) {
+    super();
     this.role = role;
     this.commandParser = commandParser;
   }
 
-  async connect(host: { protocol: string, hostname: string, extraQueries?: [string, string][] }) {
+  async connect(host: { protocol: string, hostname: string, extraQueries?: [string, string | null][] }) {
     this.hostProtocol = host.protocol;
     this.hostname = host.hostname;
     this.extraQueries = host.extraQueries;
 
     const wsProtocol = this.hostProtocol === "https:" ? "wss:" : "ws:";
+    const queries = this.extraQueries?.filter((item) => item[1] != null).map(([k, v]) => `${k}=${v}`).join("&");
     this.socket = new WebSocket(
-      `${wsProtocol}//${this.hostname}/ws?role=${this.role}` + (this.extraQueries ? "&" + this.extraQueries.map(([k, v]) => `${k}=${v}`).join("&") : ""),
+      `${wsProtocol}//${this.hostname}/ws?role=${this.role}` + (queries ? "&" + queries : ""),
     );
 
     this.socket.addEventListener('message', (event) => { this.onMessage(event.data) });
@@ -56,17 +68,30 @@ export class WebsocketManager {
     }
   }
 
-  private onMessage(message: ArrayBuffer) {
-    const commandStr: string = message.toString();
-    const parts = commandStr.split(":");
-    const command = parts.shift();
-    const params = parts.join(":");
-
-    if (command) {
-      this.commandParser(command, params);
+  private onMessage(message: Blob | string) {
+    if (message instanceof Blob) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const arrayBuffer = reader.result as ArrayBuffer;
+        const uint8Array = new Uint8Array(arrayBuffer);
+        this.onMessageParsed(uint8Array);
+      };
+      reader.readAsArrayBuffer(message);
     } else {
-      console.warn('Received invalid command:', commandStr);
+      const uint8Array = new TextEncoder().encode(message);
+      this.onMessageParsed(uint8Array);
     }
+  }
+
+  private onMessageParsed(message: Uint8Array) {
+    if (!this.isControllerReady && this.role === Role.Controller) {
+      this.isControllerReady = true;
+      const data = Ready.decode(message);
+      this.dispatchEvent(new CustomEvent("ready", { detail: data }));
+      return;
+    }
+    const parsedMsg = roleToServerMap[this.role].decode(new Uint8Array(message));
+    this.commandParser(parsedMsg);
   }
 
   private onError() {
@@ -84,7 +109,7 @@ export class WebsocketManager {
           hostname: this.hostname!,
           extraQueries: this.extraQueries,
         });
-      }, Math.min(1000 * (2 ** this.retryCount), 30000)); // cap at 30 seconds
+      }, Math.min(1000 * this.retryCount, 30000)); // cap at 30 seconds
       this.retryCount++;
     }
   }
@@ -94,9 +119,13 @@ export class WebsocketManager {
     this.retryConnection();
   }
 
-  public send(message: string) {
+  public send(message: Uint8Array | string) {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(message);
+      if (typeof message === "string") {
+        this.socket.send(new TextEncoder().encode(message).buffer);
+      } else {
+        this.socket.send(Uint8Array.from(message).buffer);
+      }
     } else {
       this.messagePool.push(message);
     }

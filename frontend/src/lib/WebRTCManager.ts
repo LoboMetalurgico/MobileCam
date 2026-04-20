@@ -1,18 +1,14 @@
-const ICE_CONFIG = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-  ],
-};
+import { ICE_CONFIG } from "./consts";
+import type { Session } from "./interfaces/session";
 
 interface WRTCManagerCallbacks {
   onRemoteTrack?: (track: MediaStreamTrack, streams: readonly MediaStream[]) => void;
-  onICECandidate?: (connectionId: string, candidate: RTCIceCandidateInit) => void;
+  onICECandidate?: (session: Session, candidate: RTCIceCandidateInit) => void;
 }
 
 export class WRTCManager {
-  private connections: Record<string, RTCPeerConnection> = {};
-  private candidateQueues: Record<string, RTCIceCandidateInit[]> = {};
+  private connections: Record<number, RTCPeerConnection> = {};
+  private candidateQueues: Record<number, RTCIceCandidateInit[]> = {};
   private Callbacks: WRTCManagerCallbacks;
 
   constructor(callbacks: WRTCManagerCallbacks) {
@@ -21,44 +17,43 @@ export class WRTCManager {
 
   public finish() {
     for (const connectionId in this.connections) {
-      this.closePeerConnection(connectionId);
+      this.closePeerConnection(Number(connectionId));
     }
   }
 
-  public createPeerConnection(connectionId: string) {
-    if (this.connections[connectionId]) {
-      this.connections[connectionId].close();
+  public createPeerConnection(connection: Session) {
+    if (this.connections[connection.id]) {
+      this.connections[connection.id].close();
     }
 
     const pc = new RTCPeerConnection(ICE_CONFIG);
-    console.log("Creating PeerConnection for ID:", connectionId);
-    this.connections[connectionId] = pc;
-    this.candidateQueues[connectionId] = [];
+    this.connections[connection.id] = pc;
+    this.candidateQueues[connection.id] = [];
 
-    pc.addEventListener('connectionstatechange', () => this.onConnectionState(connectionId, pc.connectionState));
+    pc.addEventListener('connectionstatechange', () => this.onConnectionState(connection, pc.connectionState));
     pc.addEventListener('track', ({ track, streams }) => this.Callbacks.onRemoteTrack?.(track, streams));
     pc.addEventListener('icecandidate', ({ candidate }) => {
-      if (candidate) this.Callbacks.onICECandidate?.(connectionId, candidate.toJSON());
+      if (candidate) this.Callbacks.onICECandidate?.(connection, candidate.toJSON());
     });
 
     return pc;
   }
 
-  private async onConnectionState(connectionId: string, state: RTCPeerConnectionState) {
+  private async onConnectionState(connection: Session, state: RTCPeerConnectionState) {
     switch (state) {
       case "closed":
       case "failed":
-        this.closePeerConnection(connectionId);
+        this.closePeerConnection(connection.id);
         break;
       case "connected":
-        this.flushCandidateQueue(connectionId);
+        this.flushCandidateQueue(connection.id);
         break;
       default:
         break;
     }
   }
 
-  public closePeerConnection(connectionId: string) {
+  public closePeerConnection(connectionId: number) {
     const pc = this.connections[connectionId];
     if (!pc) return;
     pc.close();
@@ -66,14 +61,14 @@ export class WRTCManager {
     delete this.candidateQueues[connectionId];
   }
 
-  public async addTrack(connectionId: string, track: MediaStreamTrack) {
+  public async addTrack(connectionId: number, track: MediaStreamTrack) {
     const pc = this.connections[connectionId];
     if (!pc) throw new Error("[AddTrack] PeerConnection not found for ID: " + connectionId);
     pc.addTrack(track);
   }
 
   public async setStreamBandwidth(
-    connectionId: string,
+    connectionId: number,
     maxBitrate: number,
     maxFramerate: number,
   ) {
@@ -98,14 +93,12 @@ export class WRTCManager {
     return Object.keys(this.connections);
   }
 
-  public getPeerConnection(connectionId: string) {
+  public getPeerConnection(connectionId: number) {
     return this.connections[connectionId];
   }
 
-  public async addICECandidate(connectionId: string, candidate: RTCIceCandidateInit) {
+  public async addICECandidate(connectionId: number, candidate: RTCIceCandidateInit) {
     const pc = this.connections[connectionId];
-    console.log(pc.signalingState);
-    console.log(pc.connectionState);
     if (!pc || !pc.remoteDescription) {
       this.candidateQueues[connectionId]?.push(candidate);
       return;
@@ -115,7 +108,7 @@ export class WRTCManager {
     });
   }
 
-  public async flushCandidateQueue(connectionId: string) {
+  public async flushCandidateQueue(connectionId: number) {
     const pc = this.connections[connectionId];
     if (!pc || !pc.remoteDescription) return;
     const queue = this.candidateQueues[connectionId] || [];
@@ -125,14 +118,14 @@ export class WRTCManager {
     this.candidateQueues[connectionId] = [];
   }
 
-  public async setRemoteDescription(connectionId: string, description: RTCSessionDescriptionInit) {
+  public async setRemoteDescription(connectionId: number, description: RTCSessionDescriptionInit) {
     const pc = this.connections[connectionId];
     if (!pc || (pc.currentLocalDescription !== null && pc.signalingState === "stable")) throw new Error("[SetRemoteDescription] PeerConnection not found or is already connected for ID: " + connectionId);
     await pc.setRemoteDescription(new RTCSessionDescription(description));
     this.flushCandidateQueue(connectionId);
   }
 
-  public async createStreamOffer(connectionId: string) {
+  public async createStreamOffer(connectionId: number) {
     const pc = this.connections[connectionId];
     if (!pc) throw new Error("[CreateStreamOffer] PeerConnection not found for ID: " + connectionId);
     const offer = await pc.createOffer();
@@ -140,7 +133,7 @@ export class WRTCManager {
     return offer;
   }
 
-  public async createStreamAnswer(connectionId: string) {
+  public async createStreamAnswer(connectionId: number) {
     const pc = this.connections[connectionId];
     if (!pc) throw new Error("[CreateStreamAnswer] PeerConnection not found for ID: " + connectionId);
     const answer = await pc.createAnswer();

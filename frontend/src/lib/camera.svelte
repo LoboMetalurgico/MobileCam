@@ -1,19 +1,46 @@
 <script lang="ts">
-  import type { Quality } from "$lib/interfaces/Quality";
+  import { Quality } from "$lib/protos/common";
   import { preventScreenLock } from "$lib/utils/phoneUtils";
-  import { onMount } from "svelte";
-
+  import Player from "./player.svelte";
+  import VerticalSlider from "./VerticalSlider.svelte";
   const QUALITY_PROFILES = {
-    high: { width: 1920, height: 1080, frameRate: 30, bitrate: 8_000_000 },
-    medium: { width: 1280, height: 720, frameRate: 24, bitrate: 2_000_000 },
-    low: { width: 640, height: 480, frameRate: 15, bitrate: 500_000 },
+    [Quality.UNRECOGNIZED]: {
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      bitrate: 8_000_000,
+    },
+    [Quality.QUALITY_UNSPECIFIED]: {
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      bitrate: 8_000_000,
+    },
+    [Quality.QUALITY_HIGH]: {
+      width: 1920,
+      height: 1080,
+      frameRate: 30,
+      bitrate: 8_000_000,
+    },
+    [Quality.QUALITY_MEDIUM]: {
+      width: 1280,
+      height: 720,
+      frameRate: 24,
+      bitrate: 2_000_000,
+    },
+    [Quality.QUALITY_LOW]: {
+      width: 640,
+      height: 480,
+      frameRate: 15,
+      bitrate: 500_000,
+    },
   };
 
-  let currentQuality: Quality = "high";
+  let currentQuality: Quality = Quality.QUALITY_HIGH;
 
-  let zoomValue = 1;
-  let maxZoom = 5;
-  let minZoom = 1;
+  let zoomValue = $state(1);
+  let maxZoom = $state(5);
+  let minZoom = $state(1);
   let nativeZoomSupported = false;
   const facingMode = "environment";
   let initialPinchDistance = 0;
@@ -22,19 +49,19 @@
     zoom: 1,
     rotation: 0,
   });
-  let videoWidth = $state(0);
-  let videoHeight = $state(0);
-  let zoomSlider: HTMLInputElement;
 
   let localStream: MediaStream | undefined = $state();
+  let preview: Player;
 
   interface Props {
     onTransform: ({
       zoom,
       rotation,
+      isNative,
     }: {
       zoom: number;
       rotation: number;
+      isNative: boolean;
     }) => void;
     setStreamingBandwidth: (
       maxBitrate: number,
@@ -44,17 +71,18 @@
 
   let props: Props = $props();
 
-  function applyZoom(val: number) {
+  export function applyZoom(val: number) {
     if (!localStream) return;
-    zoomValue = val;
-    updateZoomSlider();
+    // convert val from 0 to 100 into min to max
+    const appliedZoom = (val / 100) * (maxZoom - minZoom) + minZoom;
+    zoomValue = appliedZoom;
     const track = localStream.getVideoTracks()[0];
 
     if (nativeZoomSupported) {
-      previewStyleTransform.zoom = 1;
+      previewStyleTransform.zoom = 0;
       track
         .applyConstraints({
-          advanced: [{ zoom: val } as MediaTrackConstraintSet],
+          advanced: [{ zoom: appliedZoom } as MediaTrackConstraintSet],
         })
         .catch(() => {
           nativeZoomSupported = false;
@@ -63,11 +91,12 @@
     }
 
     if (!nativeZoomSupported) {
-      const settings = track.getSettings();
       previewStyleTransform.zoom = val;
-      previewStyleTransform.rotation =
-        (settings.width ?? 1920) < (settings.height ?? 1080) ? 90 : 0;
-      props.onTransform(previewStyleTransform);
+      props.onTransform({ ...previewStyleTransform, isNative: false });
+      preview.setZoom(val);
+    } else {
+      props.onTransform({ rotation: 0, zoom: val, isNative: true });
+      preview.setZoom(0);
     }
   }
 
@@ -124,29 +153,24 @@
       e.touches[0].clientY - e.touches[1].clientY,
     );
     const scale = dist / initialPinchDistance;
-    const newZoom = Math.max(
-      minZoom,
-      Math.min(maxZoom, pinchStartZoom * scale),
-    );
-    applyZoom(newZoom);
+    const rawZoom = pinchStartZoom * scale;
+    const clampedZoom = Math.max(minZoom, Math.min(maxZoom, rawZoom));
+    const percent = ((clampedZoom - minZoom) / (maxZoom - minZoom)) * 100;
+    applyZoom(percent);
   }
 
-  export async function recalculateVideoDimensions(retryAttempt = 0) {
-    if (!localStream) return;
-    const settings = localStream.getVideoTracks()[0].getSettings();
-    const previousWidth = videoWidth;
-    const previousHeight = videoHeight;
-    if (
-      settings.width === previousWidth &&
-      settings.height === previousHeight
-    ) {
-      // check again in 100ms in case the settings haven't updated yet
-      if (retryAttempt < 5)
-        setTimeout(() => recalculateVideoDimensions(retryAttempt + 1), 100);
-      return;
-    }
-    videoWidth = settings.width ?? 0;
-    videoHeight = settings.height ?? 0;
+  function handleVideoResize() {
+    setTimeout(() => {
+      if (!localStream) return;
+      const settings = localStream.getVideoTracks()[0].getSettings();
+      const videoRatio = settings.aspectRatio ?? 16 / 9;
+      if (!nativeZoomSupported)
+        preview.setAspectRatio(
+          previewStyleTransform.rotation % 180 === 0
+            ? 1 / videoRatio
+            : videoRatio,
+        );
+    }, 500);
   }
 
   export async function start() {
@@ -170,7 +194,9 @@
 
       const track = localStream.getVideoTracks()[0];
       const caps = track.getCapabilities?.() || {};
-      const settings = track.getSettings();
+
+      preview.setStream(localStream);
+      await preview.play();
 
       // @ts-expect-error chrome only feature
       if (caps.zoom) {
@@ -181,16 +207,28 @@
         maxZoom = caps.zoom.max;
       }
 
-      applyZoom(1);
+      applyZoom(0);
 
-      if (settings) {
-        videoWidth = settings.width ?? 0;
-        videoHeight = settings.height ?? 0;
-      }
-      screen.orientation.addEventListener("change", () =>
-        recalculateVideoDimensions(),
-      );
-      window.addEventListener("resize", () => recalculateVideoDimensions());
+      screen.orientation.addEventListener("change", () => {
+        handleVideoResize();
+        if (nativeZoomSupported) {
+          preview.setRotation(0);
+          preview.setIsNative(true);
+          return;
+        }
+        const angle = screen.orientation.type.includes("landscape-primary")
+          ? 270
+          : screen.orientation.type.includes("landscape-secondary")
+            ? 90
+            : screen.orientation.type.includes("portrait-primary")
+              ? 0
+              : 180;
+        if (previewStyleTransform.rotation === angle) return;
+        previewStyleTransform.rotation = angle;
+        preview.setRotation(angle);
+        preview.setIsNative(false);
+        props.onTransform({ ...previewStyleTransform, isNative: false });
+      });
     } catch (err) {
       console.error(err);
       alert("Could not start camera");
@@ -200,55 +238,30 @@
   export function getVideoStream(): MediaStream | undefined {
     return localStream;
   }
-
-  function updateZoomSlider() {
-    zoomSlider.min = minZoom as unknown as string;
-    zoomSlider.max = maxZoom as unknown as string;
-    zoomSlider.value = zoomValue as unknown as string;
-    const ratio =
-      ((Number(zoomSlider.value) - Number(zoomSlider.min)) /
-        (Number(zoomSlider.max) - Number(zoomSlider.min))) *
-      100;
-    zoomSlider.style.background = `linear-gradient(0deg, var(--slider-bg-color) ${ratio}%, var(--deselected-bg-color) ${ratio}%)`;
-  }
-
-  onMount(() => {
-    zoomSlider.addEventListener("input", () => {
-      applyZoom(Number(zoomSlider.value));
-    });
-  });
 </script>
 
 <div class="CameraContent">
-  <div class="zoomSlider">
-    <input
-      type="range"
-      name="range"
-      value="0"
-      min="0"
-      max="100"
-      step="0.01"
-      id="inputRange"
-      class="inputRange clickable"
-      bind:this={zoomSlider}
+  <div class="overlay">
+    <VerticalSlider
+      min={0}
+      max={100}
+      step={1}
+      value={((zoomValue - minZoom) / (maxZoom - minZoom)) * 100}
+      showValue={false}
+      onChange={(newValue) => {
+        applyZoom(newValue);
+      }}
     />
   </div>
   <div
     class="videoPreview"
-    style={`--width: ${videoWidth};--height: ${videoHeight};`}
+    role="img"
+    ontouchmove={handleTouchMove}
+    ontouchstart={handleTouchStart}
   >
     <div class="hoz-rulers"></div>
     <div class="ver-rulers"></div>
-    <video
-      id="preview"
-      ontouchmove={handleTouchMove}
-      ontouchstart={handleTouchStart}
-      srcobject={localStream}
-      style={`transform: rotate(${previewStyleTransform.rotation}) scale(${previewStyleTransform.zoom});`}
-      autoplay
-      muted
-      playsinline
-    ></video>
+    <Player bind:this={preview} showOverlay={false} />
   </div>
 </div>
 
@@ -260,25 +273,23 @@
     justify-content: center;
     align-items: center;
   }
+  .overlay {
+    position: absolute;
+    width: 7rem;
+    height: 100%;
+    top: 0;
+    right: 0;
+    padding: 1rem;
+    z-index: 999;
+  }
+
   .videoPreview {
-    width: 100vw;
-    max-width: calc(90dvh * (var(--width) / var(--height)) - 1rem);
-    aspect-ratio: calc(var(--width) / var(--height));
-    height: auto;
     background: black;
     position: relative;
     pointer-events: none;
     overflow: hidden;
-  }
-
-  #preview {
     width: 100%;
     height: 100%;
-    object-fit: contain;
-    pointer-events: all;
-    position: absolute;
-    top: 0;
-    left: 0;
   }
 
   .hoz-rulers,
@@ -312,52 +323,5 @@
       width: 100%;
       height: 1px;
     }
-  }
-
-  .zoomSlider {
-    position: absolute;
-    right: 0;
-    top: 0;
-    z-index: 999;
-    height: 100%;
-    padding: 1rem;
-  }
-
-  .inputRange {
-    --slider-bg-color: hsla(from var(--accent-color) h calc(s/3) l);
-    --deselected-bg-color: #444;
-
-    appearance: none;
-    width: 3rem;
-    height: 100%;
-    border: 1px solid #333333;
-    background: linear-gradient(
-      0deg,
-      var(--slider-bg-color) 0%,
-      var(--deselected-bg-color) 0%
-    );
-    writing-mode: vertical-rl;
-    direction: rtl;
-    cursor: pointer;
-  }
-
-  /* Thumb: for Chrome, Safari, Edge */
-  .inputRange::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 3rem;
-    height: 0.5rem;
-    background: var(--accent-color);
-    box-shadow: none;
-  }
-
-  /* Thumb: for Firefox */
-  .inputRange::-moz-range-thumb {
-    border: none;
-    border-radius: 0;
-    width: 3rem;
-    height: 0.5rem;
-    background: var(--accent-color);
-    box-shadow: none;
   }
 </style>

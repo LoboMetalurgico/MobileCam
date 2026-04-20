@@ -1,14 +1,30 @@
 <script lang="ts">
-  import type { Quality } from "$lib/interfaces/Quality";
   import { preventScreenLock } from "$lib/utils/phoneUtils";
-
+  import { Quality } from "./protos/common";
   const QUALITY_PROFILES = {
-    high: { frameRate: 30, bitrate: 8_000_000 },
-    medium: { frameRate: 15, bitrate: 500_000 },
-    low: { frameRate: 5, bitrate: 300_000 },
+    [Quality.UNRECOGNIZED]: {
+      frameRate: 5,
+      bitrate: 300_000,
+    },
+    [Quality.QUALITY_UNSPECIFIED]: {
+      frameRate: 5,
+      bitrate: 300_000,
+    },
+    [Quality.QUALITY_HIGH]: {
+      frameRate: 30,
+      bitrate: 8_000_000,
+    },
+    [Quality.QUALITY_MEDIUM]: {
+      frameRate: 15,
+      bitrate: 1_000_000,
+    },
+    [Quality.QUALITY_LOW]: {
+      frameRate: 5,
+      bitrate: 300_000,
+    },
   };
 
-  let currentQuality: Quality = "low";
+  let currentQuality: Quality = Quality.QUALITY_LOW;
 
   let videoWidth = $state(0);
   let videoHeight = $state(0);
@@ -19,11 +35,16 @@
     onTransform: ({
       zoom,
       rotation,
+      isNative,
     }: {
       zoom: number;
       rotation: number;
+      isNative: boolean;
     }) => void;
-    setStreamingBandwidth: (maxBitrate: number, maxFramerate: number) => Promise<void>;
+    setStreamingBandwidth: (
+      maxBitrate: number,
+      maxFramerate: number,
+    ) => Promise<void>;
   }
 
   let props: Props = $props();

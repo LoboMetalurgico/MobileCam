@@ -10,7 +10,8 @@
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "proto": "protoc --proto_path=../protos --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=./src/lib/protos ../protos/controller.proto ../protos/streamer.proto ../protos/viewer.proto"
   },
   "devDependencies": {
     "@eslint/compat": "^2.0.4",
@@ -27,5 +28,8 @@
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.1",
     "vite": "^8.0.7"
+  },
+  "dependencies": {
+    "ts-proto": "^2.11.6"
   }
 }

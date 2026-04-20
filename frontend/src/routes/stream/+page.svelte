@@ -1,6 +1,5 @@
 <script lang="ts">
   import { page } from "$app/state";
-  import type { Quality } from "$lib/interfaces/Quality";
   import { Role } from "$lib/interfaces/Role";
   import { toggleFullScreen } from "$lib/utils/phoneUtils";
   import { WRTCManager } from "$lib/WebRTCManager";
@@ -8,12 +7,8 @@
   import { onDestroy } from "svelte";
   import Camera from "../../lib/camera.svelte";
   import Screen from "../../lib/screen.svelte";
-
-  function stringToQuality(string: string): Quality {
-    if (string === "3") return "low";
-    if (string === "2") return "medium";
-    return "high";
-  }
+  import { ClientToServer, type ServerToClient } from "$lib/protos/streamer";
+  import type { Session } from "$lib/interfaces/session";
 
   // svelte-ignore non_reactive_update
   let sourceMedia: Camera | Screen;
@@ -21,25 +16,58 @@
   let isSocketOpen = $state(false);
   const socket = new WebsocketManager(Role.Streamer, commandHandler);
   const rtcManager = new WRTCManager({
-    onICECandidate(connectionId, candidate) {
-      socket.send(`g:${connectionId}:#${JSON.stringify(candidate)}`);
+    onICECandidate(session: Session, candidate) {
+      const reply = ClientToServer.create();
+      reply.iceCandidate = {
+        session,
+        candidate: JSON.stringify(candidate),
+      };
+      socket.send(ClientToServer.encode(reply).finish());
     },
   });
 
-  async function setStreamingBandwidth(maxBitrate: number, maxFramerate: number) {
-    for await (const pc of Object.values(rtcManager.getConnections())) {
-      await rtcManager.setStreamBandwidth(pc, maxBitrate, maxFramerate);
+  async function setStreamingBandwidth(
+    maxBitrate: number,
+    maxFramerate: number,
+  ) {
+    for await (const pc of rtcManager.getConnections()) {
+      await rtcManager.setStreamBandwidth(Number(pc), maxBitrate, maxFramerate);
     }
   }
 
-  function onCameraTransform(transform: { zoom: number; rotation: number }) {
-    socket.send(`j:#${JSON.stringify(transform)}`);
+  function onCameraTransform(transform: {
+    zoom: number;
+    rotation: number;
+    isNative: boolean;
+  }) {
+    const reply = ClientToServer.create();
+    if (transform.isNative) {
+      const resetVideoTransform = ClientToServer.create();
+      resetVideoTransform.requestVideoTransform = {
+        videoTransform: {
+          zoom: -1,
+          rotation: 0,
+        },
+      };
+      socket.send(ClientToServer.encode(resetVideoTransform).finish());
+      reply.requestZoom = {
+        zoom: transform.zoom,
+      };
+    } else {
+      reply.requestVideoTransform = {
+        videoTransform: {
+          zoom: transform.zoom,
+          rotation: transform.rotation,
+        },
+      };
+    }
+    socket.send(ClientToServer.encode(reply).finish());
   }
 
-  async function createOffer(viewerId: string) {
+  async function createOffer(session: Session) {
     const localStream = sourceMedia.getVideoStream();
     if (!localStream) return;
-    const pc = rtcManager.createPeerConnection(viewerId);
+    const pc = rtcManager.createPeerConnection(session);
     if (!pc) return;
 
     for (const track of localStream.getTracks()) {
@@ -64,16 +92,42 @@
       }
     }
 
-    const offer = await rtcManager.createStreamOffer(viewerId);
-    socket.send(`f:${viewerId}:#${JSON.stringify(offer)}`);
+    const offer = await rtcManager.createStreamOffer(session.id);
+    const reply = ClientToServer.create();
+    reply.rtcOfferResponse = {
+      session,
+      offer: JSON.stringify(offer),
+    };
+    socket.send(ClientToServer.encode(reply).finish());
+  }
+
+  // @ts-expect-error Chrome-only API
+  function reportBattery(battery: BatteryManager) {
+    const batteryLevel = Math.round(battery.level * 100);
+    const reply = ClientToServer.create();
+    reply.updateBatteryLevel = {
+      batteryLevel,
+    };
+    socket.send(ClientToServer.encode(reply).finish());
   }
 
   async function init() {
     await socket.connect({
       protocol: page.url.protocol,
       hostname: page.url.host,
+      extraQueries: [["name", page.url.searchParams.get("name")]],
     });
     await sourceMedia.start();
+
+    // @ts-expect-error Chrome-only API
+    if (navigator.getBattery) {
+      // @ts-expect-error Chrome-only API
+      navigator.getBattery().then((battery) => {
+        battery.addEventListener("levelchange", () => {
+          reportBattery(battery);
+        });
+      });
+    }
   }
 
   onDestroy(() => {
@@ -82,45 +136,30 @@
     rtcManager.finish();
   });
 
-  async function commandHandler(command: string, params: string) {
-    switch (command) {
-      case "e": // Viewer requests offer
-        await createOffer(params);
-        break;
-
-      case "h": {
-        // Received ICE candidate from Viewer
-        const candidateString = params.split(":");
-        const viewerId = candidateString.shift();
-        if (viewerId == null) return;
-
-        const candidate = JSON.parse(candidateString.join(":").slice(1));
-        await rtcManager.addICECandidate(viewerId, candidate);
-        break;
-      }
-
-      case "f": {
-        // Received Answer from Viewer
-        const candidateString = params.split(":");
-        const viewerId = candidateString.shift();
-        if (viewerId == null) return;
-
-        const sdp = JSON.parse(candidateString.join(":").slice(1));
-        await rtcManager.setRemoteDescription(viewerId, sdp);
-        break;
-      }
-
-      case "i": {
-        // Apply quality change
-        await sourceMedia.applyQuality(stringToQuality(params.split(":")[1]));
-        break;
-      }
-
-      case "l": {
-        // Set session ID
-        // sessionId = parseInt(params);
-        break;
-      }
+  async function commandHandler(command: ServerToClient) {
+    if (command.changeQuality && command.changeQuality.quality) {
+      sourceMedia.applyQuality(command.changeQuality.quality);
+    }
+    if (command.changeZoom) {
+      if (isCamera) (sourceMedia as Camera).applyZoom(command.changeZoom.zoom);
+    }
+    if (command.disconnectPeer && command.disconnectPeer.session) {
+      rtcManager.closePeerConnection(command.disconnectPeer.session.id);
+    }
+    if (command.iceCandidate && command.iceCandidate.session) {
+      rtcManager.addICECandidate(
+        command.iceCandidate.session.id,
+        JSON.parse(command.iceCandidate.candidate),
+      );
+    }
+    if (command.requestRtcOffer && command.requestRtcOffer.session) {
+      await createOffer(command.requestRtcOffer.session);
+    }
+    if (command.rtcAnswer && command.rtcAnswer.session) {
+      rtcManager.setRemoteDescription(
+        command.rtcAnswer.session.id,
+        JSON.parse(command.rtcAnswer.answer),
+      );
     }
   }
 </script>
