@@ -7,7 +7,7 @@ use crate::{
   app_state::AppState,
   proto::{
     common::{IceCandidate, Session as ProtoSession, SessionType},
-    controller::{DropSession, NewSession, new_session::Session as NewSessionEnum},
+    controller::{ChangedMute, DropSession, NewSession, new_session::Session as NewSessionEnum},
     streamer::RtcAnswer,
     viewer::{client_to_server::Command as ClientCommand, decode_client_to_server},
   },
@@ -127,6 +127,22 @@ pub async fn handle_message(
           "Failed to find streamer session or ICE candidate isn't for streamer session: {:?}",
           command.session
         );
+      }
+
+      Ok(())
+    }
+
+    ClientCommand::UpdateMuteResponse(command) => {
+      for (i, mut controller_session) in app_data.get_all_controller_sessions() {
+        if let Err(e) = controller_session
+          .send_command(ChangedMute {
+            muted: command.muted,
+            viewer_id: session_id as u64,
+          })
+          .await
+        {
+          tracing::warn!("Failed to send changed mute to controller session {i}: {e}");
+        }
       }
 
       Ok(())

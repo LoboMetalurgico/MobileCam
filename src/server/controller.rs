@@ -12,7 +12,7 @@ use crate::{
       client_to_server::Command as ClientCommand, decode_client_to_server,
     },
     streamer::{ChangeQuality, RequestRtcOffer, RtcAnswer, Zoom},
-    viewer::DisconnectStreamer,
+    viewer::{DisconnectStreamer, UpdateMute},
   },
 };
 
@@ -355,6 +355,40 @@ pub async fn handle_message(
       }
 
       Ok(())
+    }
+
+    ClientCommand::RequestMute(command) => {
+      if let Some(mut viewer_session) = app_data.get_viewer_session(command.viewer_id as usize) {
+        tracing::debug!(
+          "Received mute status change request with new mute status {}",
+          command.muted
+        );
+
+        viewer_session
+          .send_command(UpdateMute {
+            muted: command.muted,
+          })
+          .await
+          .map_err(|e| {
+            tracing::warn!(
+              "Failed to send mute status change request to viewer session {}: {e}",
+              command.viewer_id
+            );
+            Some(CloseReason {
+              code: CloseCode::Error,
+              description: Some("Failed to send mute status change request".into()),
+            })
+          })?;
+
+        Ok(())
+      } else {
+        tracing::warn!(
+          "Viewer session with ID {} not found for mute status change request",
+          command.viewer_id
+        );
+
+        Ok(())
+      }
     }
   }
 }

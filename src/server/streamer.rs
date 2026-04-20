@@ -11,7 +11,8 @@ use crate::{
       VideoTransform,
     },
     controller::{
-      BatteryLevel, DropSession, NewSession, UpdateZoom, new_session::Session as NewSessionEnum,
+      BatteryLevel, ChangedQuality, DropSession, NewSession, UpdateZoom,
+      new_session::Session as NewSessionEnum,
     },
     streamer::{client_to_server::Command as ClientCommand, decode_client_to_server},
     viewer::DisconnectStreamer,
@@ -301,6 +302,26 @@ pub async fn handle_message(
       for (controller_id, mut controller_session) in app_data.get_all_controller_sessions() {
         if let Err(e) = controller_session.send_command(zoom).await {
           tracing::warn!("Failed to send zoom request to controller session {controller_id}: {e}",);
+        }
+      }
+
+      Ok(())
+    }
+
+    ClientCommand::ChangeQualityResponse(command) => {
+      tracing::debug!("Received change quality response from streamer session {session_id}");
+
+      for (controller_id, mut controller_session) in app_data.get_all_controller_sessions() {
+        if let Err(e) = controller_session
+          .send_command(ChangedQuality {
+            streamer_id: session_id as u64,
+            quality: command.quality,
+          })
+          .await
+        {
+          tracing::warn!(
+            "Failed to send change quality response to controller session {controller_id}: {e}",
+          );
         }
       }
 
