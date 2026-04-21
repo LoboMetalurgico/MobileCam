@@ -17,7 +17,11 @@ export interface ClientToServer {
     | RtcAnswerResponse
     | undefined;
   /** The viewer is sending an ICE candidate to the streamer to establish a WebRTC connection. */
-  iceCandidate?: IceCandidate | undefined;
+  iceCandidate?:
+    | IceCandidate
+    | undefined;
+  /** The viewer has updated the mute status of their own stream. */
+  updateMuteResponse?: UpdateMuteResponse | undefined;
 }
 
 /** Contains the different commands that the server can send to the viewer. */
@@ -35,15 +39,31 @@ export interface ServerToClient {
     | IceCandidate
     | undefined;
   /** The server will send a notification to the viewer when the streamer they are watching has disconnected from the server. */
-  disconnectStreamer?: DisconnectStreamer | undefined;
+  disconnectStreamer?:
+    | DisconnectStreamer
+    | undefined;
+  /** The controller is requesting the viewer to update the mute status of the stream. */
+  updateMute?: UpdateMute | undefined;
 }
 
 /** A command sent when streamer disconnect or controller requests a viewer to disconnect from a streamer. */
 export interface DisconnectStreamer {
 }
 
+/** Requests the viewer to update its mute status of the stream. */
+export interface UpdateMute {
+  /** The new mute status to set for the stream. A value of true means to mute the stream, while a value of false means to un-mute the stream. */
+  muted: boolean;
+}
+
+/** The viewer has updated the mute status of their own stream. */
+export interface UpdateMuteResponse {
+  /** The new mute status that the viewer has changed to. A value of true means the stream is now muted, while a value of false means the stream is now un-muted. */
+  muted: boolean;
+}
+
 function createBaseClientToServer(): ClientToServer {
-  return { rtcAnswerResponse: undefined, iceCandidate: undefined };
+  return { rtcAnswerResponse: undefined, iceCandidate: undefined, updateMuteResponse: undefined };
 }
 
 export const ClientToServer: MessageFns<ClientToServer> = {
@@ -53,6 +73,9 @@ export const ClientToServer: MessageFns<ClientToServer> = {
     }
     if (message.iceCandidate !== undefined) {
       IceCandidate.encode(message.iceCandidate, writer.uint32(18).fork()).join();
+    }
+    if (message.updateMuteResponse !== undefined) {
+      UpdateMuteResponse.encode(message.updateMuteResponse, writer.uint32(26).fork()).join();
     }
     return writer;
   },
@@ -80,6 +103,14 @@ export const ClientToServer: MessageFns<ClientToServer> = {
           message.iceCandidate = IceCandidate.decode(reader, reader.uint32());
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.updateMuteResponse = UpdateMuteResponse.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -101,6 +132,11 @@ export const ClientToServer: MessageFns<ClientToServer> = {
         : isSet(object.ice_candidate)
         ? IceCandidate.fromJSON(object.ice_candidate)
         : undefined,
+      updateMuteResponse: isSet(object.updateMuteResponse)
+        ? UpdateMuteResponse.fromJSON(object.updateMuteResponse)
+        : isSet(object.update_mute_response)
+        ? UpdateMuteResponse.fromJSON(object.update_mute_response)
+        : undefined,
     };
   },
 
@@ -111,6 +147,9 @@ export const ClientToServer: MessageFns<ClientToServer> = {
     }
     if (message.iceCandidate !== undefined) {
       obj.iceCandidate = IceCandidate.toJSON(message.iceCandidate);
+    }
+    if (message.updateMuteResponse !== undefined) {
+      obj.updateMuteResponse = UpdateMuteResponse.toJSON(message.updateMuteResponse);
     }
     return obj;
   },
@@ -126,6 +165,9 @@ export const ClientToServer: MessageFns<ClientToServer> = {
     message.iceCandidate = (object.iceCandidate !== undefined && object.iceCandidate !== null)
       ? IceCandidate.fromPartial(object.iceCandidate)
       : undefined;
+    message.updateMuteResponse = (object.updateMuteResponse !== undefined && object.updateMuteResponse !== null)
+      ? UpdateMuteResponse.fromPartial(object.updateMuteResponse)
+      : undefined;
     return message;
   },
 };
@@ -136,6 +178,7 @@ function createBaseServerToClient(): ServerToClient {
     updateVideoTransform: undefined,
     iceCandidate: undefined,
     disconnectStreamer: undefined,
+    updateMute: undefined,
   };
 }
 
@@ -152,6 +195,9 @@ export const ServerToClient: MessageFns<ServerToClient> = {
     }
     if (message.disconnectStreamer !== undefined) {
       DisconnectStreamer.encode(message.disconnectStreamer, writer.uint32(34).fork()).join();
+    }
+    if (message.updateMute !== undefined) {
+      UpdateMute.encode(message.updateMute, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -195,6 +241,14 @@ export const ServerToClient: MessageFns<ServerToClient> = {
           message.disconnectStreamer = DisconnectStreamer.decode(reader, reader.uint32());
           continue;
         }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.updateMute = UpdateMute.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -226,6 +280,11 @@ export const ServerToClient: MessageFns<ServerToClient> = {
         : isSet(object.disconnect_streamer)
         ? DisconnectStreamer.fromJSON(object.disconnect_streamer)
         : undefined,
+      updateMute: isSet(object.updateMute)
+        ? UpdateMute.fromJSON(object.updateMute)
+        : isSet(object.update_mute)
+        ? UpdateMute.fromJSON(object.update_mute)
+        : undefined,
     };
   },
 
@@ -242,6 +301,9 @@ export const ServerToClient: MessageFns<ServerToClient> = {
     }
     if (message.disconnectStreamer !== undefined) {
       obj.disconnectStreamer = DisconnectStreamer.toJSON(message.disconnectStreamer);
+    }
+    if (message.updateMute !== undefined) {
+      obj.updateMute = UpdateMute.toJSON(message.updateMute);
     }
     return obj;
   },
@@ -262,6 +324,9 @@ export const ServerToClient: MessageFns<ServerToClient> = {
       : undefined;
     message.disconnectStreamer = (object.disconnectStreamer !== undefined && object.disconnectStreamer !== null)
       ? DisconnectStreamer.fromPartial(object.disconnectStreamer)
+      : undefined;
+    message.updateMute = (object.updateMute !== undefined && object.updateMute !== null)
+      ? UpdateMute.fromPartial(object.updateMute)
       : undefined;
     return message;
   },
@@ -306,6 +371,122 @@ export const DisconnectStreamer: MessageFns<DisconnectStreamer> = {
   },
   fromPartial<I extends Exact<DeepPartial<DisconnectStreamer>, I>>(_: I): DisconnectStreamer {
     const message = createBaseDisconnectStreamer();
+    return message;
+  },
+};
+
+function createBaseUpdateMute(): UpdateMute {
+  return { muted: false };
+}
+
+export const UpdateMute: MessageFns<UpdateMute> = {
+  encode(message: UpdateMute, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.muted !== false) {
+      writer.uint32(16).bool(message.muted);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): UpdateMute {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseUpdateMute();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.muted = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): UpdateMute {
+    return { muted: isSet(object.muted) ? globalThis.Boolean(object.muted) : false };
+  },
+
+  toJSON(message: UpdateMute): unknown {
+    const obj: any = {};
+    if (message.muted !== false) {
+      obj.muted = message.muted;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<UpdateMute>, I>>(base?: I): UpdateMute {
+    return UpdateMute.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<UpdateMute>, I>>(object: I): UpdateMute {
+    const message = createBaseUpdateMute();
+    message.muted = object.muted ?? false;
+    return message;
+  },
+};
+
+function createBaseUpdateMuteResponse(): UpdateMuteResponse {
+  return { muted: false };
+}
+
+export const UpdateMuteResponse: MessageFns<UpdateMuteResponse> = {
+  encode(message: UpdateMuteResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.muted !== false) {
+      writer.uint32(8).bool(message.muted);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): UpdateMuteResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseUpdateMuteResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.muted = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): UpdateMuteResponse {
+    return { muted: isSet(object.muted) ? globalThis.Boolean(object.muted) : false };
+  },
+
+  toJSON(message: UpdateMuteResponse): unknown {
+    const obj: any = {};
+    if (message.muted !== false) {
+      obj.muted = message.muted;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<UpdateMuteResponse>, I>>(base?: I): UpdateMuteResponse {
+    return UpdateMuteResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<UpdateMuteResponse>, I>>(object: I): UpdateMuteResponse {
+    const message = createBaseUpdateMuteResponse();
+    message.muted = object.muted ?? false;
     return message;
   },
 };

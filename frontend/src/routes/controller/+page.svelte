@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from "$app/state";
   import AsyncPrompt from "$lib/asyncPrompt.svelte";
   import { Role } from "$lib/interfaces/Role";
   import type { Session } from "$lib/interfaces/session";
@@ -10,14 +11,27 @@
     ViewerSession,
     type ServerToClient,
   } from "$lib/protos/controller";
+  import Qrcode from "$lib/qrcode.svelte";
   import VerticalSlider from "$lib/VerticalSlider.svelte";
   import { WRTCManager } from "$lib/WebRTCManager";
   import { WebsocketManager } from "$lib/websocketManager";
   import { onDestroy, onMount } from "svelte";
 
+  let version = $state<string>("1.0.0");
+
+  $effect(() => {
+    fetch(`https://${page.url.host}/version`)
+      .then((data) => data.text())
+      .then((value) => {
+        version = value;
+      });
+  });
+
   let player: Player;
   let asyncPrompt: AsyncPrompt;
   let selectItem: HTMLSelectElement;
+  let inBroadcasterPage = $state<boolean>(false);
+  let currentPreviewing = $state<number | null>(null);
   let waitViewerCallback: (
     viewers: ViewerSession[],
   ) => Promise<void> = async () => {};
@@ -48,9 +62,11 @@
       number,
       {
         zoom: number;
+        rotation: number;
         nativeZoom: boolean;
         battery: number;
         name: string;
+        quality: Quality;
         session?: Session;
       }
     >
@@ -61,6 +77,7 @@
       {
         sessionType: SessionType;
         name: string;
+        isMute: boolean;
         streamerId?: number;
       }
     >
@@ -73,14 +90,18 @@
     name?: string,
     battery?: number,
     zoom?: number,
+    rotation?: number,
     nativeZoom?: boolean,
+    quality?: Quality,
     session?: Session,
   ) {
     streamers[id] = {
       name: name ?? "Transmissor #" + id,
       zoom: zoom ?? 1,
+      rotation: rotation ?? 0,
       nativeZoom: nativeZoom ?? true,
       battery: battery ?? 100,
+      quality: quality ?? Quality.QUALITY_HIGH,
       session,
     };
   }
@@ -91,7 +112,10 @@
       name?: string;
       battery?: number;
       zoom?: number;
+      rotation?: number;
       nativeZoom?: boolean;
+      quality?: Quality;
+      isMute?: boolean;
       session?: Session;
     },
   ) {
@@ -102,7 +126,9 @@
         data.name,
         data.battery,
         data.zoom,
+        data.rotation,
         data.nativeZoom,
+        data.quality,
         data.session,
       );
       return;
@@ -110,7 +136,9 @@
     streamer.name = data.name ?? streamer.name;
     streamer.battery = data.battery ?? streamer.battery;
     streamer.zoom = data.zoom ?? streamer.zoom;
+    streamer.rotation = data.rotation ?? streamer.rotation;
     streamer.nativeZoom = data.nativeZoom ?? streamer.nativeZoom;
+    streamer.quality = data.quality ?? streamer.quality;
     streamer.session = data.session ?? streamer.session;
   }
 
@@ -131,22 +159,40 @@
     if (currentStreamerBoxSelected === id) currentStreamerBoxSelected = null;
   }
 
-  function createViewer(session: Session, name?: string, streamerId?: number) {
+  function createViewer(
+    session: Session,
+    isMute: boolean,
+    name?: string,
+    streamerId?: number,
+  ) {
     viewers[session.id] = {
       name: name ?? "Receptor #" + session.id,
       streamerId,
+      isMute,
       sessionType: session.type,
     };
   }
 
-  function updateViewer(session: Session, name?: string, streamerId?: number) {
+  function updateViewer(
+    session: Session,
+    isMute?: boolean,
+    name?: string,
+    streamerId?: number | null,
+  ) {
     const viewer = viewers[session.id];
     if (!viewer) {
-      createViewer(session, name, streamerId);
+      createViewer(
+        session,
+        isMute == null ? true : isMute,
+        name,
+        streamerId == null ? undefined : streamerId,
+      );
       return;
     }
     viewer.name = name ?? viewer.name;
-    viewer.streamerId = streamerId;
+    if (streamerId !== undefined)
+      viewer.streamerId = streamerId == null ? undefined : streamerId;
+    if (isMute != null) viewer.isMute = isMute;
     viewer.sessionType = session.type;
   }
 
@@ -163,7 +209,9 @@
         streamer.name,
         streamer.batteryLevel,
         streamer.zoom,
+        0,
         true,
+        Quality.QUALITY_HIGH,
         {
           id: streamer.id,
           type: SessionType.SESSION_TYPE_STREAMER,
@@ -175,7 +223,7 @@
 
   socket.addEventListener("ready", onReady);
 
-  function commandHandler(command: ServerToClient) {
+  async function commandHandler(command: ServerToClient) {
     console.log("[Command] Received command", command);
     if (command.newSession) {
       console.log("[Command] New session");
@@ -196,6 +244,7 @@
             id: command.newSession.viewerSession.id,
             type: SessionType.SESSION_TYPE_VIEWER,
           },
+          undefined,
           command.newSession.viewerSession.name,
           command.newSession.viewerSession.streamerId,
         );
@@ -215,6 +264,7 @@
           id: command.changedWatching.viewerId,
           type: viewers[command.changedWatching.viewerId].sessionType,
         },
+        undefined,
         undefined,
         command.changedWatching.streamerId,
       );
@@ -237,7 +287,7 @@
     if (command.iceCandidate && command.iceCandidate.session) {
       console.log("[Command] New ICE candidate");
       rtcManager.addICECandidate(
-        command.iceCandidate.session.id,
+        command.iceCandidate.session,
         JSON.parse(command.iceCandidate.candidate),
       );
     }
@@ -260,7 +310,9 @@
             streamer.name,
             streamer.batteryLevel,
             streamer.zoom,
+            0,
             true,
+            Quality.QUALITY_HIGH,
             { id: streamer.id, type: SessionType.SESSION_TYPE_STREAMER },
           );
       }
@@ -274,6 +326,7 @@
               id: viewer.id,
               type: SessionType.SESSION_TYPE_VIEWER,
             },
+            undefined,
             viewer.name,
             viewer.streamerId,
           );
@@ -283,6 +336,7 @@
               id: viewer.id,
               type: SessionType.SESSION_TYPE_VIEWER,
             },
+            true,
             viewer.name,
             viewer.streamerId,
           );
@@ -292,9 +346,16 @@
     }
     if (command.requestRtcAnswer) {
       console.log("[Command] Request RTC answer");
-      const answer = rtcManager.createStreamAnswer(
-        command.requestRtcAnswer.streamerId,
+      const session = {
+        id: command.requestRtcAnswer.streamerId,
+        type: SessionType.SESSION_TYPE_STREAMER,
+      };
+      rtcManager.createPeerConnection(session);
+      rtcManager.setRemoteDescription(
+        session,
+        JSON.parse(command.requestRtcAnswer.offer),
       );
+      const answer = await rtcManager.createStreamAnswer(session);
       const reply = ClientToServer.create();
       reply.rtcAnswerResponse = {
         streamerId: command.requestRtcAnswer.streamerId,
@@ -310,8 +371,11 @@
       // css fallback zoom
       updateStreamer(command.updateVideoTransform.streamerId, {
         zoom: command.updateVideoTransform.videoTransform.zoom,
+        rotation: command.updateVideoTransform.videoTransform.rotation,
         nativeZoom: false,
       });
+      player.setRotation(command.updateVideoTransform.videoTransform.rotation);
+      player.setZoom(command.updateVideoTransform.videoTransform.zoom);
     }
     if (command.updateZoom) {
       // regular zoom
@@ -320,6 +384,20 @@
         zoom: command.updateZoom.zoom,
         nativeZoom: true,
       });
+    }
+    if (command.changedQuality) {
+      updateStreamer(command.changedQuality.streamerId, {
+        quality: command.changedQuality.quality,
+      });
+    }
+    if (command.changedMute) {
+      updateViewer(
+        {
+          id: command.changedMute.viewerId,
+          type: SessionType.SESSION_TYPE_VIEWER,
+        },
+        command.changedMute.muted,
+      );
     }
   }
 
@@ -346,6 +424,19 @@
     const msg = ClientToServer.create();
     msg.listViewers = {};
     socket.send(ClientToServer.encode(msg).finish());
+  }
+
+  function startPreviewing(streamerId: number) {
+    const msg = ClientToServer.create();
+    msg.requestRtcOffer = { streamerId };
+    socket.send(ClientToServer.encode(msg).finish());
+  }
+
+  function stopPreviewing(streamerId: number) {
+    rtcManager.closePeerConnection({
+      id: streamerId,
+      type: SessionType.SESSION_TYPE_STREAMER,
+    });
   }
 
   onMount(() => {
@@ -390,113 +481,240 @@
 
 <div class="controller">
   <AsyncPrompt bind:this={asyncPrompt} />
-  <nav class="sidebar"></nav>
+  <nav class="sidebar">
+    <button
+      class="sideBarButton"
+      title="Inicio"
+      onclick={() => {
+        inBroadcasterPage = false;
+      }}><div class="sidebarIcon homepage"></div></button
+    >
+    <button
+      class="sideBarButton"
+      title="Transmissores"
+      onclick={() => {
+        inBroadcasterPage = true;
+      }}><div class="sidebarIcon broadcasters"></div></button
+    >
+  </nav>
   <div class="pages">
-    <div class="page homepage"></div>
-    <div class="page streamers">
-      <h1 class="pageTitle">Transmissores</h1>
-      <div class="streamersList">
-        {#each Object.keys(streamers) as streamerId, index (index)}
-          <div
-            class={`streamer ${currentStreamerBoxSelected === Number(streamerId) ? "openStreamer" : ""}`}
-          >
-            <div class="streamerLeft">
-              <button
-                class="streamerHeader"
-                onclick={() => {
-                  if (currentStreamerBoxSelected === Number(streamerId))
-                    currentStreamerBoxSelected = null;
-                  else currentStreamerBoxSelected = Number(streamerId);
-                }}
-              >
-                <h3 class="streamerName">
-                  {streamers[Number(streamerId)].name}
-                </h3>
-                <p>Bateria: {streamers[Number(streamerId)].battery}%</p>
-                {#if currentStreamerBoxSelected !== Number(streamerId)}
-                  <p>
-                    Zoom: {Math.round(streamers[Number(streamerId)].zoom)}%
-                  </p>
-                  <p>Quality: Alta</p>
-                {/if}
-              </button>
-              {#if currentStreamerBoxSelected === Number(streamerId)}
-                <div class="streamerReceivers">
-                  <p class="receiversTitle">Receptores:</p>
-                  {#each Object.entries(viewers).filter((item) => item[1].streamerId === currentStreamerBoxSelected) as receiver, recIndex (recIndex)}
-                    <div class="receiver">
-                      <span class="receiverName">{receiver[1].name}</span>
-                      <button
-                        class="removeViewerButton"
-                        onclick={() => {
-                          const msg = ClientToServer.create();
-                          msg.updateWatching = {
-                            viewerId: Number(receiver[0]),
-                          };
-                          socket.send(ClientToServer.encode(msg).finish());
-                        }}>X</button
+    {#if !inBroadcasterPage}
+      <div class="page homepage">
+        <div class="qrcodeBox">
+          <Qrcode url={`https://${page.url.host}/stream`} />
+          <div class="qrcodeboxContent">
+            <h2 class="qrcodeboxTitle">Transmissor</h2>
+            <p class="qrcodeboxText">
+              Escaneie o QRCode ao lado para iniciar um transmissor. Use o
+              parâmetro de URL '?name=Valor' para nomear o transmissor.
+            </p>
+            <a
+              class="qrcodeboxLink"
+              data-sveltekit-preload-data="off"
+              href={`https://${page.url.host}/stream`}
+              >{`https://${page.url.host}/stream`}</a
+            >
+          </div>
+        </div>
+        <div class="qrcodeBox">
+          <Qrcode url={`https://${page.url.host}/view`} />
+          <div class="qrcodeboxContent">
+            <h2 class="qrcodeboxTitle">Receptor</h2>
+            <p class="qrcodeboxText">
+              Escaneie o QRCode ao lado para iniciar um receptor. Use o
+              parâmetro de URL '?name=Valor' para nomear o receptor.
+            </p>
+            <a
+              class="qrcodeboxLink"
+              data-sveltekit-preload-data="off"
+              href={`https://${page.url.host}/view`}
+              >{`https://${page.url.host}/view`}</a
+            >
+          </div>
+        </div>
+      </div>
+    {:else}
+      <div class="page streamers">
+        <h1 class="pageTitle">Transmissores</h1>
+        <div class="streamersList">
+          {#each Object.keys(streamers) as streamerId, index (index)}
+            <div
+              class={`streamer ${currentStreamerBoxSelected === Number(streamerId) ? "openStreamer" : ""}`}
+            >
+              <div class="streamerLeft">
+                <button
+                  class="streamerHeader"
+                  onclick={() => {
+                    if (currentStreamerBoxSelected === Number(streamerId))
+                      currentStreamerBoxSelected = null;
+                    else currentStreamerBoxSelected = Number(streamerId);
+                    const msg = ClientToServer.create();
+                    msg.listViewers = {
+                      streamerId: Number(streamerId),
+                    };
+                    socket.send(ClientToServer.encode(msg).finish());
+                  }}
+                >
+                  <h3 class="streamerName">
+                    <div
+                      class={`collapsable ${currentStreamerBoxSelected === Number(streamerId) ? "open" : ""}`}
+                    ></div>
+                    {streamers[Number(streamerId)].name}
+                  </h3>
+                  <span class="streamerStats"
+                    ><span>{streamers[Number(streamerId)].battery}%</span>
+                    <div
+                      class="streamerStatsIcon battery"
+                      style={`--fill-percent: ${streamers[Number(streamerId)].battery};`}
+                    ></div></span
+                  >
+                  {#if currentStreamerBoxSelected !== Number(streamerId)}
+                    <span class="streamerStats">
+                      <span
+                        >{Math.round(streamers[Number(streamerId)].zoom)}%</span
                       >
+                      <div class="streamerStatsIcon zoom"></div>
+                    </span>
+                    <span class="streamerStats">
+                      <span
+                        >{streamers[Number(streamerId)].quality ===
+                        Quality.QUALITY_LOW
+                          ? "Baixa"
+                          : streamers[Number(streamerId)].quality ===
+                              Quality.QUALITY_MEDIUM
+                            ? "Media"
+                            : "Alta"}</span
+                      >
+                      <div class="streamerStatsIcon quality"></div>
+                    </span>
+                  {/if}
+                </button>
+                {#if currentStreamerBoxSelected === Number(streamerId)}
+                  <div class="streamerReceivers">
+                    <p class="receiversTitle">Receptores:</p>
+                    {#each Object.entries(viewers).filter((item) => item[1].streamerId === currentStreamerBoxSelected) as receiver, recIndex (recIndex)}
+                      <div class="receiver">
+                        <button
+                          title="mute toggle"
+                          class="toggleMuteIcon"
+                          onclick={() => {
+                            const msg = ClientToServer.create();
+                            msg.requestMute = {
+                              viewerId: Number(receiver[0]),
+                              muted: !receiver[1].isMute,
+                            };
+                            socket.send(ClientToServer.encode(msg).finish());
+                          }}
+                          ><div
+                            class={`muteIcon ${receiver[1].isMute ? "muted" : ""}`}
+                          ></div></button
+                        >
+                        <span class="receiverName">{receiver[1].name}</span>
+                        <button
+                          class="removeViewerButton"
+                          onclick={() => {
+                            const msg = ClientToServer.create();
+                            msg.updateWatching = {
+                              viewerId: Number(receiver[0]),
+                            };
+                            socket.send(ClientToServer.encode(msg).finish());
+                            updateViewer(
+                              {
+                                id: Number(receiver[0]),
+                                type: receiver[1].sessionType,
+                              },
+                              undefined,
+                              undefined,
+                              null,
+                            );
+                          }}>X</button
+                        >
+                      </div>
+                    {/each}
+                    <div class="streamerActions">
+                      <button
+                        class="addViewerButton"
+                        onclick={() => {
+                          addViewerToStreamer(Number(streamerId));
+                        }}>+</button
+                      >
+                      {#if currentStreamerBoxSelected === currentPreviewing}
+                        <button
+                          class="addViewerButton"
+                          onclick={() => {
+                            stopPreviewing(Number(streamerId));
+                          }}>Parar Preview</button
+                        >
+                      {:else}
+                        <button
+                          class="addViewerButton"
+                          onclick={() => {
+                            startPreviewing(Number(streamerId));
+                          }}>Preview</button
+                        >
+                      {/if}
                     </div>
-                  {/each}
-                  <button
-                    class="addViewerButton"
-                    onclick={() => {
-                      addViewerToStreamer(Number(streamerId));
-                    }}>+</button
-                  >
-                </div>
-              {/if}
-            </div>
-            {#if currentStreamerBoxSelected === Number(streamerId)}
-              <div class="streamerRight">
-                <div class="qualityModifier">
-                  <span class="selectQualityTitle">Qualidade</span>
-                  <select
-                    class="selectQuality"
-                    onchange={(ev) => {
-                      const value = (ev.target as HTMLSelectElement).value;
-                      const msgData = ClientToServer.create();
-                      msgData.requestChangeQuality = {
-                        streamerId: Number(streamerId),
-                        quality:
-                          value === "high"
-                            ? Quality.QUALITY_HIGH
-                            : value === "medium"
-                              ? Quality.QUALITY_MEDIUM
-                              : Quality.QUALITY_LOW,
-                      };
-                      socket.send(ClientToServer.encode(msgData).finish());
-                    }}
-                  >
-                    <option value="high">Alta</option>
-                    <option value="medium">Média</option>
-                    <option value="low">Baixa</option>
-                  </select>
-                </div>
-                <div class="zoomSliderContainer">
-                  <div class="zoomSliderWrapper">
-                    <VerticalSlider
-                      min={0}
-                      max={100}
-                      step={1}
-                      value={streamers[Number(streamerId)].zoom}
-                      onChange={(value) => {
+                  </div>
+                {/if}
+              </div>
+              {#if currentStreamerBoxSelected === Number(streamerId)}
+                <div class="streamerRight">
+                  <div class="qualityModifier">
+                    <span class="selectQualityTitle">Qualidade</span>
+                    <select
+                      value={streamers[Number(streamerId)].quality ===
+                      Quality.QUALITY_LOW
+                        ? "low"
+                        : streamers[Number(streamerId)].quality ===
+                            Quality.QUALITY_MEDIUM
+                          ? "medium"
+                          : "high"}
+                      class="selectQuality"
+                      onchange={(ev) => {
+                        const value = (ev.target as HTMLSelectElement).value;
                         const msgData = ClientToServer.create();
-                        msgData.requestZoom = {
+                        msgData.requestChangeQuality = {
                           streamerId: Number(streamerId),
-                          zoom: value,
+                          quality:
+                            value === "high"
+                              ? Quality.QUALITY_HIGH
+                              : value === "medium"
+                                ? Quality.QUALITY_MEDIUM
+                                : Quality.QUALITY_LOW,
                         };
                         socket.send(ClientToServer.encode(msgData).finish());
                       }}
-                    />
+                    >
+                      <option value="high">Alta</option>
+                      <option value="medium">Média</option>
+                      <option value="low">Baixa</option>
+                    </select>
+                  </div>
+                  <div class="zoomSliderContainer">
+                    <div class="zoomSliderWrapper">
+                      <VerticalSlider
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={streamers[Number(streamerId)].zoom}
+                        onChange={(value) => {
+                          const msgData = ClientToServer.create();
+                          msgData.requestZoom = {
+                            streamerId: Number(streamerId),
+                            zoom: value,
+                          };
+                          socket.send(ClientToServer.encode(msgData).finish());
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            {/if}
-          </div>
-        {/each}
+              {/if}
+            </div>
+          {/each}
+        </div>
       </div>
-    </div>
+    {/if}
   </div>
   <div class="info">
     <div class="preview">
@@ -505,7 +723,7 @@
     <div class="logs">
       <h2 class="logsBoxTitle">Logs</h2>
       <p class="logText">
-        &gt; MobileCam V1.0.0
+        &gt; MobileCam V{version}
         <br />
         <br />
         Transmissores: {Object.keys(streamers).length} <br />
@@ -515,7 +733,7 @@
         Controller_id: {controllerId ?? "Conectando..."}
       </p>
     </div>
-    <img class="logo" alt="Company Branding" src="/image/logo.png" />
+    <img class="logo" alt="Company Branding" src="/logo.png" />
   </div>
 </div>
 
@@ -531,6 +749,35 @@
     background: hsla(from var(--accent-color) h s l / 0.3);
     width: 100%;
     height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 0.5rem;
+  }
+
+  .sideBarButton {
+    width: 100%;
+    aspect-ratio: 1;
+    background: hsla(from var(--accent-color) h s l / 0.3);
+    border: 1px solid var(--accent-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    cursor: pointer;
+  }
+
+  .sidebarIcon {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    background: var(--accent-color);
+    mask-size: contain;
+
+    &.homepage {
+      mask-image: url("/icons/home.svg");
+    }
+    &.broadcasters {
+      mask-image: url("/icons/broadcaster.svg");
+    }
   }
 
   .info {
@@ -599,15 +846,51 @@
     overflow: hidden;
   }
 
-  .homepage {
-    display: none;
-  }
-
   .pageTitle {
     color: var(--accent-color);
     font-size: 2rem;
     font-weight: bolder;
     width: 100%;
+  }
+
+  .qrcodeBox {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: 1fr;
+    gap: 1rem;
+    color: var(--accent-color);
+    background: hsla(from var(--accent-color) h s l / 0.3);
+    border: 1px solid var(--accent-color);
+    padding: 1rem;
+    border-radius: 1rem;
+  }
+
+  .qrcode {
+    aspect-ratio: 1;
+    height: 100%;
+    width: auto;
+    max-width: 250px;
+    object-fit: contain;
+  }
+
+  .qrcodeboxContent {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .qrcodeboxTitle {
+    font-size: 1.5rem;
+    font-weight: bolder;
+    letter-spacing: -1px;
+  }
+
+  .qrcodeboxLink {
+    color: var(--accent-color);
+    &:visited {
+      color: hsla(from var(--accent-color) calc(h + 25) s l);
+    }
   }
 
   .streamersList {
@@ -681,11 +964,26 @@
     border: 0;
     display: flex;
     flex-direction: row;
+    gap: 1rem;
     justify-content: start;
     align-items: center;
     cursor: pointer;
     .openStreamer & {
       padding-right: 0;
+    }
+  }
+
+  .collapsable {
+    width: auto;
+    height: 2rem;
+    aspect-ratio: 1;
+    background: var(--accent-color);
+    mask-size: contain;
+    mask-image: url("/icons/collapsable-open.svg");
+    rotate: -90deg;
+    transition: rotate 0.5s ease;
+    &.open {
+      rotate: 0deg;
     }
   }
 
@@ -699,6 +997,54 @@
     font-size: 1.75rem;
     font-weight: bolder;
     text-align: left;
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .streamerStats {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    place-content: center;
+    color: var(--accent-color);
+    font-size: 1.25rem;
+    align-items: center;
+  }
+
+  .streamerStatsIcon {
+    height: 2rem;
+    aspect-ratio: 1;
+    width: auto;
+    mask-size: contain;
+    background: var(--accent-color);
+    &.battery {
+      mask-image: url("/icons/battery-full.svg");
+      position: relative;
+      background: linear-gradient(
+        90deg,
+        var(--accent-color) calc((var(--fill-percent) * 0.9) * 1%),
+        transparent calc((var(--fill-percent) * 0.9) * 1%)
+      );
+    }
+    &.battery::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 100%;
+      background: var(--accent-color);
+      mask-image: url("/icons/battery.svg");
+      mask-size: contain;
+    }
+    &.zoom {
+      mask-image: url("/icons/zoom.svg");
+    }
+    &.quality {
+      mask-image: url("/icons/quality.svg");
+    }
   }
 
   .streamerReceivers {
@@ -728,6 +1074,7 @@
     border-radius: 0.5rem;
     background: hsla(from var(--accent-color) h s l / 0.3);
     border: 1px solid var(--accent-color);
+    gap: 0.5rem;
   }
 
   .receiverName {
@@ -737,7 +1084,8 @@
     color: var(--accent-color);
   }
 
-  .removeViewerButton {
+  .removeViewerButton,
+  .toggleMuteIcon {
     border: 0;
     background: transparent;
     height: 100%;
@@ -748,6 +1096,23 @@
     font-size: 1.25rem;
     font-weight: bolder;
     cursor: pointer;
+  }
+
+  .muteIcon {
+    height: 100%;
+    width: auto;
+    aspect-ratio: 1;
+    background: var(--accent-color);
+    mask-size: contain;
+    mask-image: url("/icons/unmute.svg");
+    &.muted {
+      mask-image: url("/icons/mute.svg");
+    }
+  }
+
+  .streamerActions {
+    display: flex;
+    gap: 0.5rem;
   }
 
   .addViewerButton {

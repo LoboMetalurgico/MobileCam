@@ -31,10 +31,11 @@ async fn logo_png(req: HttpRequest) -> HttpResponse<EitherBody<BoxBody>> {
           .map_into_left_body()
       })
       .unwrap_or_else(|| {
-        tracing::debug!("File not found");
-        HttpResponse::NotFound()
-          .body("Not found")
-          .map_into_right_body()
+        tracing::debug!("File not found sending fallback");
+        HttpResponse::Ok()
+          .content_type(mime::IMAGE_PNG)
+          .body(&include_bytes!("../static/logo.png")[..])
+          .map_into_left_body()
       })
   }
 }

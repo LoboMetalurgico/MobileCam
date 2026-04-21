@@ -390,5 +390,33 @@ pub async fn handle_message(
         Ok(())
       }
     }
+
+    ClientCommand::RequestRtcOffer(command) => {
+      if let Some(mut streamer_session) =
+        app_data.get_streamer_session(command.streamer_id as usize)
+      {
+        if let Err(e) = streamer_session
+          .send_command(RequestRtcOffer {
+            session: Some(ProtoSession {
+              id: session_id as u64,
+              r#type: SessionType::Controller as i32,
+            }),
+          })
+          .await
+        {
+          tracing::warn!(
+            "Failed to send rtc request offer to streamer {}: {e}",
+            command.streamer_id
+          );
+        }
+      } else {
+        tracing::warn!(
+          "Streamer session with ID {} not found for request rtc offer",
+          command.streamer_id
+        );
+      }
+
+      Ok(())
+    }
   }
 }

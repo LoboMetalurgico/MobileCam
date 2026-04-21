@@ -10,7 +10,10 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 
 use crate::{
   app_state::AppState,
-  routes::{color::color_txt, logo::logo_png, static_routes::index, websocket::incoming_socket},
+  routes::{
+    color::color_txt, logo::logo_png, static_routes::index, version::version,
+    websocket::incoming_socket,
+  },
 };
 
 mod app_state;
@@ -32,6 +35,7 @@ const CONN_TIMEOUT: u64 = 15; // seconds
 
 #[actix_web::main]
 async fn main() {
+  println!(include_str!("static/asciiart.txt"));
   tracing_subscriber::registry()
     .with(fmt::layer())
     .with(
@@ -93,6 +97,7 @@ async fn main() {
       .service(incoming_socket)
       .service(logo_png)
       .service(color_txt)
+      .service(version)
       .service(index)
   })
   .bind_rustls_0_23(

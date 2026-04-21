@@ -31,7 +31,11 @@
     maxFramerate: number,
   ) {
     for await (const pc of rtcManager.getConnections()) {
-      await rtcManager.setStreamBandwidth(Number(pc), maxBitrate, maxFramerate);
+      await rtcManager.setStreamBandwidth(
+        WRTCManager.keyToSession(pc),
+        maxBitrate,
+        maxFramerate,
+      );
     }
   }
 
@@ -92,7 +96,7 @@
       }
     }
 
-    const offer = await rtcManager.createStreamOffer(session.id);
+    const offer = await rtcManager.createStreamOffer(session);
     const reply = ClientToServer.create();
     reply.rtcOfferResponse = {
       session,
@@ -139,16 +143,21 @@
   async function commandHandler(command: ServerToClient) {
     if (command.changeQuality && command.changeQuality.quality) {
       sourceMedia.applyQuality(command.changeQuality.quality);
+      const msg = ClientToServer.create();
+      msg.changeQualityResponse = {
+        quality: command.changeQuality.quality,
+      };
+      socket.send(ClientToServer.encode(msg).finish());
     }
     if (command.changeZoom) {
       if (isCamera) (sourceMedia as Camera).applyZoom(command.changeZoom.zoom);
     }
     if (command.disconnectPeer && command.disconnectPeer.session) {
-      rtcManager.closePeerConnection(command.disconnectPeer.session.id);
+      rtcManager.closePeerConnection(command.disconnectPeer.session);
     }
     if (command.iceCandidate && command.iceCandidate.session) {
       rtcManager.addICECandidate(
-        command.iceCandidate.session.id,
+        command.iceCandidate.session,
         JSON.parse(command.iceCandidate.candidate),
       );
     }
@@ -157,7 +166,7 @@
     }
     if (command.rtcAnswer && command.rtcAnswer.session) {
       rtcManager.setRemoteDescription(
-        command.rtcAnswer.session.id,
+        command.rtcAnswer.session,
         JSON.parse(command.rtcAnswer.answer),
       );
     }
@@ -202,7 +211,7 @@
       }}
       aria-label="Tela Cheia"><div class="fullscreenIcon"></div></button
     >
-    <img class="branding" alt="Company Logo" src="/image/logo.png" />
+    <img class="branding" alt="Company Logo" src="/logo.png" />
   </div>
   {#if isCamera}
     <Camera

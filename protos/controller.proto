@@ -37,6 +37,8 @@ message ClientToServer {
     UpdateWatching update_watching = 8;
     // Controller is requesting the streamer to update the mute status of the stream.
     RequestChangeMute request_mute = 9;
+    // Ask streamer for a WebRTC offer
+    RequestRtcOffer request_rtc_offer = 10;
   }
 }
 
@@ -204,4 +206,10 @@ message ChangedMute {
   uint64 viewer_id = 1;
   // The new mute status that the viewer has changed to. A value of true means the stream is now muted, while a value of false means the stream is now un-muted.
   bool muted = 2;
+}
+
+// The controller is asking a streamer for an offer for the builtin preview.
+message RequestRtcOffer {
+  // The ID of the streamer that should create an offer.
+  uint64 streamer_id = 1;
 }

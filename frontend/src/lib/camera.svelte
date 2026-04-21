@@ -38,7 +38,7 @@
 
   let currentQuality: Quality = Quality.QUALITY_HIGH;
 
-  let zoomValue = $state(1);
+  let zoomValue = $state(0);
   let maxZoom = $state(5);
   let minZoom = $state(1);
   let nativeZoomSupported = false;
@@ -46,7 +46,7 @@
   let initialPinchDistance = 0;
   let pinchStartZoom = 1;
   let previewStyleTransform = $state({
-    zoom: 1,
+    zoom: 0,
     rotation: 0,
   });
 
@@ -164,12 +164,7 @@
       if (!localStream) return;
       const settings = localStream.getVideoTracks()[0].getSettings();
       const videoRatio = settings.aspectRatio ?? 16 / 9;
-      if (!nativeZoomSupported)
-        preview.setAspectRatio(
-          previewStyleTransform.rotation % 180 === 0
-            ? 1 / videoRatio
-            : videoRatio,
-        );
+      if (!nativeZoomSupported) preview.setAspectRatio(videoRatio);
     }, 500);
   }
 
@@ -213,7 +208,6 @@
         handleVideoResize();
         if (nativeZoomSupported) {
           preview.setRotation(0);
-          preview.setIsNative(true);
           return;
         }
         const angle = screen.orientation.type.includes("landscape-primary")
@@ -226,7 +220,6 @@
         if (previewStyleTransform.rotation === angle) return;
         previewStyleTransform.rotation = angle;
         preview.setRotation(angle);
-        preview.setIsNative(false);
         props.onTransform({ ...previewStyleTransform, isNative: false });
       });
     } catch (err) {

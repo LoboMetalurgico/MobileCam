@@ -5,14 +5,17 @@
     rotation: number;
     zoom: number;
     aspectRatio: number;
-    isNative: boolean;
-  }>({ rotation: 0, zoom: 1, aspectRatio: 16 / 9, isNative: true });
+  }>({ rotation: 0, zoom: 0, aspectRatio: 16 / 9 });
 
-  const props: { showOverlay: boolean } = $props();
+  const props: {
+    showOverlay: boolean;
+    onMuteChange?: (mute: boolean) => void;
+  } = $props();
 
-  function toggleMute() {
-    preview.muted = !preview.muted;
+  export function toggleMute(force?: boolean) {
+    preview.muted = force != null ? force : !preview.muted;
     isMuted = preview.muted;
+    if (props.onMuteChange) props.onMuteChange(isMuted);
   }
 
   export async function play() {
@@ -25,6 +28,11 @@
 
   export function setStream(src: MediaProvider) {
     preview.srcObject = src;
+    viewFallbackTransform = {
+      rotation: 0,
+      zoom: 0,
+      aspectRatio: 16 / 9,
+    };
   }
 
   export function setZoom(value: number) {
@@ -39,19 +47,19 @@
     viewFallbackTransform.aspectRatio = value;
   }
 
-  export function setIsNative(bool: boolean) {
-    viewFallbackTransform.isNative = bool;
-  }
-
   export function getVideo() {
     return preview;
   }
 </script>
 
 <div class="watcher">
+  <div class="connection-wait">
+    <img class="logo" src="/logo.png" alt="branding" />
+    <p class="wait">Aguardando Imagem...</p>
+  </div>
   {#if props.showOverlay}
     <div class="overlay">
-      <button class="muteButton" onclick={toggleMute} aria-label="mute">
+      <button class="muteButton" onclick={() => toggleMute()} aria-label="mute">
         <div class={`muteIcon ${isMuted ? "isMuted" : ""}`}></div>
       </button>
     </div>
@@ -59,14 +67,9 @@
   <div
     class="playerContainer"
     style={[
-      `--aspect-ratio: ${!viewFallbackTransform.isNative && viewFallbackTransform.rotation % 180 === 0 ? 1 / viewFallbackTransform.aspectRatio : viewFallbackTransform.aspectRatio};`,
+      `--aspect-ratio: ${viewFallbackTransform.aspectRatio};`,
       `--rotate: ${viewFallbackTransform.rotation}deg;`,
-      viewFallbackTransform.isNative
-        ? "width: 100dvw;"
-        : `width: calc(${viewFallbackTransform.rotation % 180 === 0 ? "100dvh /" : "100dvw *"} var(--aspect-ratio));`,
-      viewFallbackTransform.isNative
-        ? "height: 100dvh;"
-        : `height: ${viewFallbackTransform.rotation % 180 === 0 ? "100dvh" : "100dvw"};`,
+      `--scale: ${viewFallbackTransform.rotation % 180 === 90 ? viewFallbackTransform.aspectRatio : "1"};`,
     ].join("")}
   >
     <video
@@ -88,6 +91,28 @@
     position: relative;
     justify-content: center;
     align-items: center;
+  }
+
+  .connection-wait {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .logo {
+    width: 65%;
+    height: auto;
+    opacity: 0.75;
+  }
+
+  .wait {
+    color: var(--accent-color);
+    font-size: 1.25rem;
   }
 
   .overlay {
@@ -141,13 +166,16 @@
     place-content: center;
     rotate: var(--rotate);
     overflow: hidden;
-    aspect-ratio: var(--aspect-ratio);
+    scale: var(--scale);
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+    z-index: 10;
   }
 
   #video {
     width: 100%;
     object-fit: contain;
-    background-color: #111;
     scale: var(--zoom);
   }
 </style>

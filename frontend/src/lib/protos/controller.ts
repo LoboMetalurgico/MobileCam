@@ -60,7 +60,15 @@ export interface ClientToServer {
     | RequestZoom
     | undefined;
   /** / Controller is requesting a viewer to update which streamer they are watching. */
-  updateWatching?: UpdateWatching | undefined;
+  updateWatching?:
+    | UpdateWatching
+    | undefined;
+  /** Controller is requesting the streamer to update the mute status of the stream. */
+  requestMute?:
+    | RequestChangeMute
+    | undefined;
+  /** Ask streamer for a WebRTC offer */
+  requestRtcOffer?: RequestRtcOffer | undefined;
 }
 
 /** Contains the different commands that the server can send to the controller. */
@@ -69,7 +77,7 @@ export interface ServerToClient {
   requestRtcAnswer?:
     | RequestRtcAnswer
     | undefined;
-  /** The streamer will send a request to update the video transform applied to the stream when the streamer requests it. */
+  /** The streamer has requested to update the CSS-based zoom level applied to the stream. */
   updateVideoTransform?:
     | UpdateVideoTransform
     | undefined;
@@ -81,7 +89,7 @@ export interface ServerToClient {
   iceCandidate?:
     | IceCandidate
     | undefined;
-  /** The streamer will send an update to the controller when the streamer updates its zoom level. */
+  /** The streamer has updated the universal zoom level applied to the stream. */
   updateZoom?:
     | UpdateZoom
     | undefined;
@@ -102,7 +110,15 @@ export interface ServerToClient {
     | DropSession
     | undefined;
   /** The server will send a notification to the controller when a viewer has changed which streamer they are watching. */
-  changedWatching?: ChangedWatching | undefined;
+  changedWatching?:
+    | ChangedWatching
+    | undefined;
+  /** The viewer has changed the mute status of their own. */
+  changedMute?:
+    | ChangedMute
+    | undefined;
+  /** The streamer has changed the quality of their stream. */
+  changedQuality?: ChangedQuality | undefined;
 }
 
 /** Requests a change in the quality of the stream from the streamer. */
@@ -199,7 +215,7 @@ export interface BatteryLevel {
   batteryLevel: number;
 }
 
-/** Requests the streamer to update the zoom level applied to the stream. */
+/** Requests the streamer to update the universal zoom level applied to the stream. */
 export interface RequestZoom {
   /** The ID of the streamer to request the zoom level for. */
   streamerId: number;
@@ -207,7 +223,7 @@ export interface RequestZoom {
   zoom: number;
 }
 
-/** Represents a streamer that has updated its zoom level. */
+/** Represents a streamer that has updated its universal zoom level. */
 export interface UpdateZoom {
   /** The ID of the streamer that has updated its zoom level. */
   streamerId: number;
@@ -221,6 +237,36 @@ export interface UpdateWatching {
   viewerId: number;
   /** The ID of the streamer that the viewer is now watching. If not provided, the viewer is not watching any streamer. */
   streamerId?: number | undefined;
+}
+
+/** Requests the viewer to update the mute status of the stream. */
+export interface RequestChangeMute {
+  /** The ID of the viewer to request the mute status change for. */
+  viewerId: number;
+  /** The new mute status to set for the stream. A value of true means to mute the stream, while a value of false means to un-mute the stream. */
+  muted: boolean;
+}
+
+/** Streamer has changed the quality of their stream. */
+export interface ChangedQuality {
+  /** The ID of the streamer that has changed the quality of their stream. */
+  streamerId: number;
+  /** The new quality that the streamer has changed to. */
+  quality: Quality;
+}
+
+/** The viewer has changed the mute status of their own stream. */
+export interface ChangedMute {
+  /** The ID of the viewer that has changed the mute status of their stream. */
+  viewerId: number;
+  /** The new mute status that the viewer has changed to. A value of true means the stream is now muted, while a value of false means the stream is now un-muted. */
+  muted: boolean;
+}
+
+/** The controller is asking a streamer for an offer for the builtin preview. */
+export interface RequestRtcOffer {
+  /** The ID of the streamer that should create an offer. */
+  streamerId: number;
 }
 
 function createBaseReady(): Ready {
@@ -331,6 +377,8 @@ function createBaseClientToServer(): ClientToServer {
     iceCandidate: undefined,
     requestZoom: undefined,
     updateWatching: undefined,
+    requestMute: undefined,
+    requestRtcOffer: undefined,
   };
 }
 
@@ -359,6 +407,12 @@ export const ClientToServer: MessageFns<ClientToServer> = {
     }
     if (message.updateWatching !== undefined) {
       UpdateWatching.encode(message.updateWatching, writer.uint32(66).fork()).join();
+    }
+    if (message.requestMute !== undefined) {
+      RequestChangeMute.encode(message.requestMute, writer.uint32(74).fork()).join();
+    }
+    if (message.requestRtcOffer !== undefined) {
+      RequestRtcOffer.encode(message.requestRtcOffer, writer.uint32(82).fork()).join();
     }
     return writer;
   },
@@ -434,6 +488,22 @@ export const ClientToServer: MessageFns<ClientToServer> = {
           message.updateWatching = UpdateWatching.decode(reader, reader.uint32());
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.requestMute = RequestChangeMute.decode(reader, reader.uint32());
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.requestRtcOffer = RequestRtcOffer.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -485,6 +555,16 @@ export const ClientToServer: MessageFns<ClientToServer> = {
         : isSet(object.update_watching)
         ? UpdateWatching.fromJSON(object.update_watching)
         : undefined,
+      requestMute: isSet(object.requestMute)
+        ? RequestChangeMute.fromJSON(object.requestMute)
+        : isSet(object.request_mute)
+        ? RequestChangeMute.fromJSON(object.request_mute)
+        : undefined,
+      requestRtcOffer: isSet(object.requestRtcOffer)
+        ? RequestRtcOffer.fromJSON(object.requestRtcOffer)
+        : isSet(object.request_rtc_offer)
+        ? RequestRtcOffer.fromJSON(object.request_rtc_offer)
+        : undefined,
     };
   },
 
@@ -513,6 +593,12 @@ export const ClientToServer: MessageFns<ClientToServer> = {
     }
     if (message.updateWatching !== undefined) {
       obj.updateWatching = UpdateWatching.toJSON(message.updateWatching);
+    }
+    if (message.requestMute !== undefined) {
+      obj.requestMute = RequestChangeMute.toJSON(message.requestMute);
+    }
+    if (message.requestRtcOffer !== undefined) {
+      obj.requestRtcOffer = RequestRtcOffer.toJSON(message.requestRtcOffer);
     }
     return obj;
   },
@@ -546,6 +632,12 @@ export const ClientToServer: MessageFns<ClientToServer> = {
     message.updateWatching = (object.updateWatching !== undefined && object.updateWatching !== null)
       ? UpdateWatching.fromPartial(object.updateWatching)
       : undefined;
+    message.requestMute = (object.requestMute !== undefined && object.requestMute !== null)
+      ? RequestChangeMute.fromPartial(object.requestMute)
+      : undefined;
+    message.requestRtcOffer = (object.requestRtcOffer !== undefined && object.requestRtcOffer !== null)
+      ? RequestRtcOffer.fromPartial(object.requestRtcOffer)
+      : undefined;
     return message;
   },
 };
@@ -562,6 +654,8 @@ function createBaseServerToClient(): ServerToClient {
     newSession: undefined,
     dropSession: undefined,
     changedWatching: undefined,
+    changedMute: undefined,
+    changedQuality: undefined,
   };
 }
 
@@ -596,6 +690,12 @@ export const ServerToClient: MessageFns<ServerToClient> = {
     }
     if (message.changedWatching !== undefined) {
       ChangedWatching.encode(message.changedWatching, writer.uint32(82).fork()).join();
+    }
+    if (message.changedMute !== undefined) {
+      ChangedMute.encode(message.changedMute, writer.uint32(90).fork()).join();
+    }
+    if (message.changedQuality !== undefined) {
+      ChangedQuality.encode(message.changedQuality, writer.uint32(98).fork()).join();
     }
     return writer;
   },
@@ -687,6 +787,22 @@ export const ServerToClient: MessageFns<ServerToClient> = {
           message.changedWatching = ChangedWatching.decode(reader, reader.uint32());
           continue;
         }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.changedMute = ChangedMute.decode(reader, reader.uint32());
+          continue;
+        }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.changedQuality = ChangedQuality.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -748,6 +864,16 @@ export const ServerToClient: MessageFns<ServerToClient> = {
         : isSet(object.changed_watching)
         ? ChangedWatching.fromJSON(object.changed_watching)
         : undefined,
+      changedMute: isSet(object.changedMute)
+        ? ChangedMute.fromJSON(object.changedMute)
+        : isSet(object.changed_mute)
+        ? ChangedMute.fromJSON(object.changed_mute)
+        : undefined,
+      changedQuality: isSet(object.changedQuality)
+        ? ChangedQuality.fromJSON(object.changedQuality)
+        : isSet(object.changed_quality)
+        ? ChangedQuality.fromJSON(object.changed_quality)
+        : undefined,
     };
   },
 
@@ -782,6 +908,12 @@ export const ServerToClient: MessageFns<ServerToClient> = {
     }
     if (message.changedWatching !== undefined) {
       obj.changedWatching = ChangedWatching.toJSON(message.changedWatching);
+    }
+    if (message.changedMute !== undefined) {
+      obj.changedMute = ChangedMute.toJSON(message.changedMute);
+    }
+    if (message.changedQuality !== undefined) {
+      obj.changedQuality = ChangedQuality.toJSON(message.changedQuality);
     }
     return obj;
   },
@@ -821,6 +953,12 @@ export const ServerToClient: MessageFns<ServerToClient> = {
       : undefined;
     message.changedWatching = (object.changedWatching !== undefined && object.changedWatching !== null)
       ? ChangedWatching.fromPartial(object.changedWatching)
+      : undefined;
+    message.changedMute = (object.changedMute !== undefined && object.changedMute !== null)
+      ? ChangedMute.fromPartial(object.changedMute)
+      : undefined;
+    message.changedQuality = (object.changedQuality !== undefined && object.changedQuality !== null)
+      ? ChangedQuality.fromPartial(object.changedQuality)
       : undefined;
     return message;
   },
@@ -1944,6 +2082,310 @@ export const UpdateWatching: MessageFns<UpdateWatching> = {
     const message = createBaseUpdateWatching();
     message.viewerId = object.viewerId ?? 0;
     message.streamerId = object.streamerId ?? undefined;
+    return message;
+  },
+};
+
+function createBaseRequestChangeMute(): RequestChangeMute {
+  return { viewerId: 0, muted: false };
+}
+
+export const RequestChangeMute: MessageFns<RequestChangeMute> = {
+  encode(message: RequestChangeMute, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.viewerId !== 0) {
+      writer.uint32(8).uint64(message.viewerId);
+    }
+    if (message.muted !== false) {
+      writer.uint32(16).bool(message.muted);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RequestChangeMute {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRequestChangeMute();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.viewerId = longToNumber(reader.uint64());
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.muted = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RequestChangeMute {
+    return {
+      viewerId: isSet(object.viewerId)
+        ? globalThis.Number(object.viewerId)
+        : isSet(object.viewer_id)
+        ? globalThis.Number(object.viewer_id)
+        : 0,
+      muted: isSet(object.muted) ? globalThis.Boolean(object.muted) : false,
+    };
+  },
+
+  toJSON(message: RequestChangeMute): unknown {
+    const obj: any = {};
+    if (message.viewerId !== 0) {
+      obj.viewerId = Math.round(message.viewerId);
+    }
+    if (message.muted !== false) {
+      obj.muted = message.muted;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RequestChangeMute>, I>>(base?: I): RequestChangeMute {
+    return RequestChangeMute.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RequestChangeMute>, I>>(object: I): RequestChangeMute {
+    const message = createBaseRequestChangeMute();
+    message.viewerId = object.viewerId ?? 0;
+    message.muted = object.muted ?? false;
+    return message;
+  },
+};
+
+function createBaseChangedQuality(): ChangedQuality {
+  return { streamerId: 0, quality: 0 };
+}
+
+export const ChangedQuality: MessageFns<ChangedQuality> = {
+  encode(message: ChangedQuality, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.streamerId !== 0) {
+      writer.uint32(8).uint64(message.streamerId);
+    }
+    if (message.quality !== 0) {
+      writer.uint32(16).int32(message.quality);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChangedQuality {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChangedQuality();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.streamerId = longToNumber(reader.uint64());
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.quality = reader.int32() as any;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ChangedQuality {
+    return {
+      streamerId: isSet(object.streamerId)
+        ? globalThis.Number(object.streamerId)
+        : isSet(object.streamer_id)
+        ? globalThis.Number(object.streamer_id)
+        : 0,
+      quality: isSet(object.quality) ? qualityFromJSON(object.quality) : 0,
+    };
+  },
+
+  toJSON(message: ChangedQuality): unknown {
+    const obj: any = {};
+    if (message.streamerId !== 0) {
+      obj.streamerId = Math.round(message.streamerId);
+    }
+    if (message.quality !== 0) {
+      obj.quality = qualityToJSON(message.quality);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ChangedQuality>, I>>(base?: I): ChangedQuality {
+    return ChangedQuality.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChangedQuality>, I>>(object: I): ChangedQuality {
+    const message = createBaseChangedQuality();
+    message.streamerId = object.streamerId ?? 0;
+    message.quality = object.quality ?? 0;
+    return message;
+  },
+};
+
+function createBaseChangedMute(): ChangedMute {
+  return { viewerId: 0, muted: false };
+}
+
+export const ChangedMute: MessageFns<ChangedMute> = {
+  encode(message: ChangedMute, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.viewerId !== 0) {
+      writer.uint32(8).uint64(message.viewerId);
+    }
+    if (message.muted !== false) {
+      writer.uint32(16).bool(message.muted);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChangedMute {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChangedMute();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.viewerId = longToNumber(reader.uint64());
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.muted = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ChangedMute {
+    return {
+      viewerId: isSet(object.viewerId)
+        ? globalThis.Number(object.viewerId)
+        : isSet(object.viewer_id)
+        ? globalThis.Number(object.viewer_id)
+        : 0,
+      muted: isSet(object.muted) ? globalThis.Boolean(object.muted) : false,
+    };
+  },
+
+  toJSON(message: ChangedMute): unknown {
+    const obj: any = {};
+    if (message.viewerId !== 0) {
+      obj.viewerId = Math.round(message.viewerId);
+    }
+    if (message.muted !== false) {
+      obj.muted = message.muted;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ChangedMute>, I>>(base?: I): ChangedMute {
+    return ChangedMute.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChangedMute>, I>>(object: I): ChangedMute {
+    const message = createBaseChangedMute();
+    message.viewerId = object.viewerId ?? 0;
+    message.muted = object.muted ?? false;
+    return message;
+  },
+};
+
+function createBaseRequestRtcOffer(): RequestRtcOffer {
+  return { streamerId: 0 };
+}
+
+export const RequestRtcOffer: MessageFns<RequestRtcOffer> = {
+  encode(message: RequestRtcOffer, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.streamerId !== 0) {
+      writer.uint32(8).uint64(message.streamerId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RequestRtcOffer {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRequestRtcOffer();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.streamerId = longToNumber(reader.uint64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): RequestRtcOffer {
+    return {
+      streamerId: isSet(object.streamerId)
+        ? globalThis.Number(object.streamerId)
+        : isSet(object.streamer_id)
+        ? globalThis.Number(object.streamer_id)
+        : 0,
+    };
+  },
+
+  toJSON(message: RequestRtcOffer): unknown {
+    const obj: any = {};
+    if (message.streamerId !== 0) {
+      obj.streamerId = Math.round(message.streamerId);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<RequestRtcOffer>, I>>(base?: I): RequestRtcOffer {
+    return RequestRtcOffer.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<RequestRtcOffer>, I>>(object: I): RequestRtcOffer {
+    const message = createBaseRequestRtcOffer();
+    message.streamerId = object.streamerId ?? 0;
     return message;
   },
 };

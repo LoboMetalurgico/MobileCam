@@ -29,7 +29,11 @@ export interface ClientToServer {
     | IceCandidate
     | undefined;
   /** The streamer has updated the zoom level applied to the stream. */
-  requestZoom?: Zoom | undefined;
+  requestZoom?:
+    | Zoom
+    | undefined;
+  /** The streamer has updated the quality of the stream. */
+  changeQualityResponse?: ChangeQualityResponse | undefined;
 }
 
 /** Contains the different commands that the server can send to the streamer. */
@@ -114,6 +118,12 @@ export interface Zoom {
   zoom: number;
 }
 
+/** A response from the streamer to the controller confirming the new quality of the stream. */
+export interface ChangeQualityResponse {
+  /** The new quality the streamer is applying to the stream. */
+  quality: Quality;
+}
+
 function createBaseClientToServer(): ClientToServer {
   return {
     rtcOfferResponse: undefined,
@@ -121,6 +131,7 @@ function createBaseClientToServer(): ClientToServer {
     updateBatteryLevel: undefined,
     iceCandidate: undefined,
     requestZoom: undefined,
+    changeQualityResponse: undefined,
   };
 }
 
@@ -140,6 +151,9 @@ export const ClientToServer: MessageFns<ClientToServer> = {
     }
     if (message.requestZoom !== undefined) {
       Zoom.encode(message.requestZoom, writer.uint32(42).fork()).join();
+    }
+    if (message.changeQualityResponse !== undefined) {
+      ChangeQualityResponse.encode(message.changeQualityResponse, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -191,6 +205,14 @@ export const ClientToServer: MessageFns<ClientToServer> = {
           message.requestZoom = Zoom.decode(reader, reader.uint32());
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.changeQualityResponse = ChangeQualityResponse.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -227,6 +249,11 @@ export const ClientToServer: MessageFns<ClientToServer> = {
         : isSet(object.request_zoom)
         ? Zoom.fromJSON(object.request_zoom)
         : undefined,
+      changeQualityResponse: isSet(object.changeQualityResponse)
+        ? ChangeQualityResponse.fromJSON(object.changeQualityResponse)
+        : isSet(object.change_quality_response)
+        ? ChangeQualityResponse.fromJSON(object.change_quality_response)
+        : undefined,
     };
   },
 
@@ -246,6 +273,9 @@ export const ClientToServer: MessageFns<ClientToServer> = {
     }
     if (message.requestZoom !== undefined) {
       obj.requestZoom = Zoom.toJSON(message.requestZoom);
+    }
+    if (message.changeQualityResponse !== undefined) {
+      obj.changeQualityResponse = ChangeQualityResponse.toJSON(message.changeQualityResponse);
     }
     return obj;
   },
@@ -271,6 +301,10 @@ export const ClientToServer: MessageFns<ClientToServer> = {
     message.requestZoom = (object.requestZoom !== undefined && object.requestZoom !== null)
       ? Zoom.fromPartial(object.requestZoom)
       : undefined;
+    message.changeQualityResponse =
+      (object.changeQualityResponse !== undefined && object.changeQualityResponse !== null)
+        ? ChangeQualityResponse.fromPartial(object.changeQualityResponse)
+        : undefined;
     return message;
   },
 };
@@ -976,6 +1010,64 @@ export const Zoom: MessageFns<Zoom> = {
   fromPartial<I extends Exact<DeepPartial<Zoom>, I>>(object: I): Zoom {
     const message = createBaseZoom();
     message.zoom = object.zoom ?? 0;
+    return message;
+  },
+};
+
+function createBaseChangeQualityResponse(): ChangeQualityResponse {
+  return { quality: 0 };
+}
+
+export const ChangeQualityResponse: MessageFns<ChangeQualityResponse> = {
+  encode(message: ChangeQualityResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.quality !== 0) {
+      writer.uint32(8).int32(message.quality);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ChangeQualityResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChangeQualityResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.quality = reader.int32() as any;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ChangeQualityResponse {
+    return { quality: isSet(object.quality) ? qualityFromJSON(object.quality) : 0 };
+  },
+
+  toJSON(message: ChangeQualityResponse): unknown {
+    const obj: any = {};
+    if (message.quality !== 0) {
+      obj.quality = qualityToJSON(message.quality);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ChangeQualityResponse>, I>>(base?: I): ChangeQualityResponse {
+    return ChangeQualityResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ChangeQualityResponse>, I>>(object: I): ChangeQualityResponse {
+    const message = createBaseChangeQualityResponse();
+    message.quality = object.quality ?? 0;
     return message;
   },
 };
