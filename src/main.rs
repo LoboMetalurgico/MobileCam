@@ -32,6 +32,46 @@ mod frontend {
 
 const MSG_TIMEOUT: u64 = 5; // seconds
 const CONN_TIMEOUT: u64 = 15; // seconds
+const DEFAULT_PORT: u16 = 3000;
+
+fn parse_port<I>(args: I) -> Result<u16, String>
+where
+  I: IntoIterator<Item = String>,
+{
+  let mut args = args.into_iter().peekable();
+  let mut port = DEFAULT_PORT;
+
+  while let Some(arg) = args.next() {
+    match arg.as_str() {
+      "--port" | "-p" => {
+        let value = args.next().ok_or_else(|| {
+          "Missing value for --port. Use --port <number>".to_string()
+        })?;
+        port = parse_single_port(&value)?;
+      }
+      value if value.starts_with("--port=") => {
+        port = parse_single_port(value.strip_prefix("--port=").unwrap())?;
+      }
+      "--help" | "-h" => {
+        return Ok(DEFAULT_PORT);
+      }
+      _ => {}
+    }
+  }
+
+  Ok(port)
+}
+
+fn parse_single_port(raw: &str) -> Result<u16, String> {
+  let raw = raw.trim();
+
+  match raw.parse::<u16>() {
+    Ok(value) if value != 0 => Ok(value),
+    _ => Err(format!(
+      "Invalid port: '{raw}'. Use a number between 1 and 65535."
+    )),
+  }
+}
 
 #[actix_web::main]
 async fn main() {
@@ -48,6 +88,12 @@ async fn main() {
       }),
     )
     .init();
+
+  let port = parse_port(std::env::args().skip(1).collect::<Vec<_>>())
+    .unwrap_or_else(|err| {
+      eprintln!("{err}");
+      exit(1)
+    });
 
   let (cert, key) = generate_simple_self_signed(&[]).map_or_else(
     |e| {
@@ -74,12 +120,12 @@ async fn main() {
         match addr.ip() {
           IpAddr::V4(ipv4) => {
             if !ipv4.is_unspecified() {
-              tracing::info!("  https://{}:3000", ipv4);
+              tracing::info!("  https://{}:{port}", ipv4);
             }
           }
           IpAddr::V6(ipv6) => {
             if !ipv6.is_unspecified() && !ipv6.is_unicast_link_local() {
-              tracing::info!("  https://[{}]:3000", ipv6);
+              tracing::info!("  https://[{}]:{port}", ipv6);
             }
           }
         };
@@ -87,7 +133,7 @@ async fn main() {
     }
     Err(e) => {
       tracing::error!("Failed to retrieve network interfaces: {e}");
-      tracing::info!("Server is running on https://localhost:3000");
+      tracing::info!("Server is running on https://localhost:{port}");
     }
   }
 
@@ -102,14 +148,14 @@ async fn main() {
   })
   .bind_rustls_0_23(
     [
-      SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 3000, 0, 0)),
-      SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 3000)),
+      SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0)),
+      SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)),
     ]
     .as_slice(),
     tls_config,
   )
   .unwrap_or_else(|e| {
-    tracing::error!("Failed to bind server to port 3000: {e}");
+    tracing::error!("Failed to bind server to port {port}: {e}");
     exit(1);
   })
   .run()
